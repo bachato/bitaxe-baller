@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.5** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Built-in LAN scanner auto-discovers new miners. Single shared stylesheet and JS helper file under `static/`. No build step.
+**v1.6** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Built-in LAN scanner auto-discovers new miners. Inline tooltips throughout. Single shared stylesheet and JS helper file under `static/`. No build step.
 
 ## Run
 
@@ -34,7 +34,7 @@ config.json                  # device list (gitignored)
 - `app.py` — Flask backend. Polls each device's `/api/system/info` every 5s in parallel via ThreadPoolExecutor. In-memory state behind a lock; device list persists to `config.json`. Publishes the dashboard as an mDNS service via `zeroconf`. Computes per-device tuning recommendations from live telemetry on every summary call. Each device summary carries a `severity` field (max severity of actionable recs) used for the home-card health border.
 - `templates/dashboard.html` — home page. Renders one compact card per device from `/api/devices`. Whole card is an `<a href="/device/<ip>">`. Card class includes `health-crit | health-warn | health-good | health-good` (border tint) plus an offline override.
 - `templates/device.html` — detail page. Polls `/api/device/<ip>` every 5s. Owns all the heavy controls: tune panel (presets + manual + fan), pool config form (primary + fallback), full charts, event log.
-- `static/common.js` — `applyThemeUI`, `toast()`, `api()`, formatters (`formatDiff`, `formatNum`, `fmtUptime`, `fmtTime`, `escapeHtml`), severity-class helpers (`tempClass`, `effClass`, `hwErrClass`), chart drawing (`drawChart`, `drawTempChart`).
+- `static/common.js` — `applyThemeUI`, `toast()`, `api()`, formatters (`formatDiff`, `formatNum`, `fmtUptime`, `fmtTime`, `escapeHtml`), severity-class helpers (`tempClass`, `effClass`, `hwErrClass`), chart drawing (`drawChart`, `drawTempChart`), and the **tooltip primitive** (event-delegated, listens for `[data-tip]` attributes anywhere in the DOM — works on dynamically rendered nodes without re-binding).
 - Theme: dark / light variables on `:root[data-theme="dark|light"]`. Toggle button in header on both pages, persisted in `localStorage`. The inline `<script>` at the top of each page applies the saved theme synchronously to avoid a flash.
 
 ## Bitaxe API reference (device → us)
@@ -73,6 +73,14 @@ Bounds are enforced server-side in `api_device_tune` and `api_device_pool`. Neve
 - `HOST` (default `0.0.0.0`; set to `127.0.0.1` to keep it local-only — also disables mDNS).
 - `MDNS_ENABLED` (default `1`; set to `0` to skip mDNS publication).
 - `MDNS_NAME` (default `bitaxe-baller`; the `.local` host name to publish).
+
+## Tooltips
+
+Any element can declare `data-tip="explainer text"` (and optional `data-tip-pos="top|bottom|left|right"`, default `top`) to get a hover/focus tooltip. The primitive is event-delegated on `document`, so dynamically rendered nodes (e.g. inside `renderCompactDevice` or `renderDetail`) just work without re-binding.
+
+Tooltip content is plain text via `textContent` — never inject HTML, since these strings often interpolate device-supplied data (labels, pool URLs).
+
+When adding new UI, default to writing a one-sentence tooltip for any non-obvious control, threshold, or value. Example tone: short, declarative, includes thresholds where relevant. Tooltips are user-facing documentation — they reduce support questions, not just decoration.
 
 ## Conventions
 

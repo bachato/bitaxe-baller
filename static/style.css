@@ -1166,3 +1166,56 @@
     animation: pulse 1.2s ease-in-out infinite;
     vertical-align: middle;
   }
+
+  /* =====================================================================
+     v1.6 — tooltip primitive
+     Trigger: any element with [data-tip="..."] (optional [data-tip-pos]).
+     ===================================================================== */
+
+  .app-tooltip {
+    position: fixed;
+    z-index: 10000;
+    background: var(--bg-3);
+    color: var(--text);
+    border: 1px solid var(--border-bright);
+    border-left: 3px solid var(--accent);
+    padding: 8px 12px;
+    font-size: 11px;
+    line-height: 1.5;
+    max-width: 320px;
+    letter-spacing: 0.01em;
+    text-transform: none;
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+    pointer-events: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.32);
+    white-space: normal;
+    font-family: inherit;
+  }
+  .app-tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Subtle "info" cursor on tooltip triggers, plus a tiny dotted underline
+     hint for inline text triggers so users notice they're hoverable. */
+  [data-tip] { cursor: help; }
+  button[data-tip], .preset[data-tip], .stat[data-tip],
+  input[data-tip], label[data-tip], a[data-tip] { cursor: inherit; }
+  .info-hint {
+    display: inline-block;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    border: 1px solid var(--dim);
+    color: var(--dim);
+    font-size: 9px;
+    line-height: 11px;
+    text-align: center;
+    margin-left: 4px;
+    vertical-align: middle;
+    cursor: help;
+    user-select: none;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .info-hint:hover { border-color: var(--accent); color: var(--accent); }

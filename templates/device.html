@@ -44,7 +44,7 @@
 </main>
 
 <footer>
-  <div>Bitaxe Baller v1.5.2 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.6 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -72,9 +72,18 @@ function recsPanel(d) {
   `).join('')}</div>`;
 }
 
+const PRESET_TIPS = {
+  stock:      'Factory baseline — known-good for the BM1370. Always start here when validating a new device or pool change.',
+  mild:       'Small overclock — typically gains a few % hashrate with negligible HW errors. Safe daily-driver setting.',
+  balanced:   'Pushes frequency up while keeping voltage moderate. Sweet spot for most chips. Watch HW errors for the first 15 min.',
+  aggressive: 'Real overclock — meaningful hashrate gain but VR runs hotter. Only run with good airflow and confirmed stable HW errors.',
+  max:        'Edge of comfort. Voltage is at 1225 mV, near the chip-degradation threshold. NOT for daily use — bench only.',
+};
+
 function presetButtons() {
   return Object.entries(PRESETS).map(([key, p]) => `
-    <button class="preset ${key === 'max' ? 'max' : ''}" onclick="applyPreset('${key}')">
+    <button class="preset ${key === 'max' ? 'max' : ''}" onclick="applyPreset('${key}')"
+            data-tip="${escapeHtml(PRESET_TIPS[key] || '')}">
       <div class="pn">${escapeHtml(p.label)}</div>
       <div class="ps">${p.frequency}MHz</div>
       <div class="ps">${p.coreVoltage}mV</div>
@@ -103,34 +112,34 @@ function tunePanel(d) {
       <div class="heading">manual tune</div>
       <div class="manual">
         <div class="field">
-          <label>frequency (${BOUNDS.frequency[0]}-${BOUNDS.frequency[1]} MHz)</label>
+          <label data-tip="ASIC core frequency in MHz. Higher = more hashrate, more heat, more power. Hard cap is 700 MHz, but most chips will throw HW errors well before that.">frequency (${BOUNDS.frequency[0]}-${BOUNDS.frequency[1]} MHz)</label>
           <div class="input-row">
-            <button class="step" onclick="bumpField('frequency',-25)">−25</button>
-            <button class="step" onclick="bumpField('frequency',-5)">−5</button>
+            <button class="step" onclick="bumpField('frequency',-25)" data-tip="Decrease frequency by 25 MHz (one tuning step).">−25</button>
+            <button class="step" onclick="bumpField('frequency',-5)" data-tip="Decrease by 5 MHz — fine adjustment.">−5</button>
             <input type="number" id="freq-input" value="${curFreq}" min="${BOUNDS.frequency[0]}" max="${BOUNDS.frequency[1]}" step="5"
                    oninput="setPending('frequency',this.value)">
-            <button class="step" onclick="bumpField('frequency',5)">+5</button>
-            <button class="step" onclick="bumpField('frequency',25)">+25</button>
+            <button class="step" onclick="bumpField('frequency',5)" data-tip="Increase by 5 MHz — fine adjustment.">+5</button>
+            <button class="step" onclick="bumpField('frequency',25)" data-tip="Increase by 25 MHz (one tuning step).">+25</button>
             <span class="unit">MHz</span>
           </div>
         </div>
         <div class="field">
-          <label>core voltage (${BOUNDS.coreVoltage[0]}-${BOUNDS.coreVoltage[1]} mV)</label>
+          <label data-tip="Core voltage in millivolts. Higher voltage stabilizes higher frequencies but accelerates chip wear. Stay under 1225 mV unless you really know what you're doing — 1300 mV is the absolute hardware limit and not safe long-term.">core voltage (${BOUNDS.coreVoltage[0]}-${BOUNDS.coreVoltage[1]} mV)</label>
           <div class="input-row">
-            <button class="step" onclick="bumpField('coreVoltage',-20)">−20</button>
-            <button class="step" onclick="bumpField('coreVoltage',-5)">−5</button>
+            <button class="step" onclick="bumpField('coreVoltage',-20)" data-tip="Decrease voltage by 20 mV.">−20</button>
+            <button class="step" onclick="bumpField('coreVoltage',-5)" data-tip="Decrease by 5 mV — fine adjustment.">−5</button>
             <input type="number" id="volt-input" value="${curVolt}" min="${BOUNDS.coreVoltage[0]}" max="${BOUNDS.coreVoltage[1]}" step="5"
                    oninput="setPending('coreVoltage',this.value)">
-            <button class="step" onclick="bumpField('coreVoltage',5)">+5</button>
-            <button class="step" onclick="bumpField('coreVoltage',20)">+20</button>
+            <button class="step" onclick="bumpField('coreVoltage',5)" data-tip="Increase by 5 mV — fine adjustment.">+5</button>
+            <button class="step" onclick="bumpField('coreVoltage',20)" data-tip="Increase by 20 mV.">+20</button>
             <span class="unit">mV</span>
           </div>
         </div>
       </div>
       <div class="tune-actions">
-        <button class="primary" onclick="applyManual()">apply settings</button>
-        <button onclick="resetSession()">reset benchmark</button>
-        <button onclick="restartDevice()">restart device</button>
+        <button class="primary" onclick="applyManual()" data-tip="Send the current frequency + voltage to the device. The benchmark baseline resets so the next 15m measurement is clean.">apply settings</button>
+        <button onclick="resetSession()" data-tip="Clear rolling averages and HW-error baseline WITHOUT changing any settings. Use this to start a fresh measurement on the same tuning.">reset benchmark</button>
+        <button onclick="restartDevice()" data-tip="Send a restart command to the device. Comes back in ~30 seconds. Required for pool config changes to take effect.">restart device</button>
       </div>
       <div class="hint">
         tip: bump frequency 25 MHz, wait 15+ minutes, watch HW error rate. baseline auto-resets when you apply settings.
@@ -140,16 +149,18 @@ function tunePanel(d) {
     <div class="tune-section">
       <div class="heading">fan</div>
       <div class="fan-controls">
-        <label class="auto-toggle">
+        <label class="auto-toggle"
+               data-tip="When enabled, firmware varies fan speed based on ASIC temperature. Recommended for normal operation. Turn OFF only if you want a fixed fan percentage (e.g. quieter at the cost of higher temps).">
           <input type="checkbox" id="auto-fan" ${autofan ? 'checked' : ''}
                  onchange="toggleAutoFan(this.checked)">
           <span>auto fan</span>
         </label>
-        <div class="manual-fan ${autofan ? 'disabled' : ''}" id="manual-fan-wrap">
+        <div class="manual-fan ${autofan ? 'disabled' : ''}" id="manual-fan-wrap"
+             data-tip="Drag to set fan duty cycle 0–100%. Disabled when auto-fan is on. Most setups want 60–100% under load.">
           <input type="range" min="0" max="100" step="5" value="${fanPct}" id="fan-slider"
                  oninput="document.getElementById('fan-pct').textContent = this.value + '%'">
           <span class="fan-pct" id="fan-pct">${fanPct}%</span>
-          <button class="primary" onclick="applyFan()">set</button>
+          <button class="primary" onclick="applyFan()" data-tip="Push the fan setting to the device.">set</button>
         </div>
       </div>
     </div>
@@ -169,44 +180,52 @@ function poolForm(d) {
       <div class="pool-block">
         <div class="pool-block-title">
           <span>primary stratum</span>
-          ${!usingFb ? '<span class="active-pill">active</span>' : ''}
+          ${!usingFb ? '<span class="active-pill" data-tip="The device is currently connected to this pool.">active</span>' : ''}
         </div>
-        <div class="field"><label>URL</label>
+        <div class="field"><label data-tip="Stratum hostname or IP. Examples: public-pool.io · solo.ckpool.org · mine.ocean.xyz · 192.168.1.151 (a local stratum proxy or self-hosted node).">URL</label>
           <input type="text" name="stratumURL" value="${escapeHtml(sm.url || '')}" placeholder="public-pool.io"></div>
-        <div class="field"><label>port</label>
+        <div class="field"><label data-tip="TCP port for the stratum connection. Common: 3333 / 3334 (Ocean), 21496 (CK Pool solo), 2018 (Public Pool). Check the pool's own getting-started page if unsure.">port</label>
           <input type="number" name="stratumPort" value="${sm.port || ''}" min="1" max="65535"></div>
-        <div class="field"><label>worker (BTC address.workerName)</label>
+        <div class="field"><label data-tip="Your payout BTC address followed by .workerName (e.g. bc1q…xyz.bitaxe001). Pool dashboards use this to track stats and pay you out.">worker (BTC address.workerName)</label>
           <input type="text" name="stratumUser" value="${escapeHtml(sm.user || '')}" placeholder="bc1q…workerName"></div>
-        <div class="field"><label>password (leave blank to keep current)</label>
+        <div class="field"><label data-tip="Worker password — almost always 'x' (most pools ignore it). The current value is never shown back to you; leave blank to keep what's already on the device. Type a new value to overwrite.">password (leave blank to keep current)</label>
           <input type="password" name="stratumPassword" value="" autocomplete="new-password" placeholder="usually 'x'"></div>
-        <label class="checkbox-row"><input type="checkbox" name="stratumTLS" ${sm.tls ? 'checked' : ''}> TLS</label>
-        <div class="field"><label>suggested difficulty (0 = auto)</label>
+        <label class="checkbox-row"
+               data-tip="Encrypt the stratum connection with TLS. Only enable if your pool documents TLS support — otherwise connection will fail.">
+          <input type="checkbox" name="stratumTLS" ${sm.tls ? 'checked' : ''}> TLS
+        </label>
+        <div class="field"><label data-tip="Difficulty target requested at connect time. 0 lets the pool auto-tune (recommended for most). Set higher (e.g. 1024 / 4096) for higher-hashrate setups to reduce share submission rate.">suggested difficulty (0 = auto)</label>
           <input type="number" name="stratumSuggestedDifficulty" value="${sm.suggestedDifficulty ?? 0}" min="0"></div>
         <div class="pool-status">connection: <span class="v">${escapeHtml(sm.connectionInfo || '—')}</span> · pool diff: <span class="v">${formatDiff(d.metrics?.poolDifficulty)}</span></div>
       </div>
 
-      <div class="pool-block fallback">
+      <div class="pool-block fallback" data-tip="Backup pool. The Bitaxe firmware automatically switches here if the primary stratum fails for ~5 minutes, then tries to switch back periodically.">
         <div class="pool-block-title">
           <span>fallback stratum</span>
-          ${usingFb ? '<span class="active-pill">active</span>' : ''}
+          ${usingFb ? '<span class="active-pill" data-tip="Primary stratum is unreachable — currently mining on the fallback.">active</span>' : ''}
         </div>
-        <div class="field"><label>URL</label>
+        <div class="field"><label data-tip="Hostname/IP of the backup pool. Pick something different from primary so an outage of one doesn't take both down.">URL</label>
           <input type="text" name="fallbackStratumURL" value="${escapeHtml(sm.fallbackUrl || '')}" placeholder="mine.ocean.xyz"></div>
-        <div class="field"><label>port</label>
+        <div class="field"><label data-tip="TCP port for the fallback pool.">port</label>
           <input type="number" name="fallbackStratumPort" value="${sm.fallbackPort || ''}" min="1" max="65535"></div>
-        <div class="field"><label>worker (BTC address.workerName)</label>
+        <div class="field"><label data-tip="Worker for the fallback pool. Often the same BTC address as primary, with a different worker name suffix so you can tell them apart on pool dashboards.">worker (BTC address.workerName)</label>
           <input type="text" name="fallbackStratumUser" value="${escapeHtml(sm.fallbackUser || '')}" placeholder="bc1q…workerName"></div>
-        <div class="field"><label>password (leave blank to keep current)</label>
+        <div class="field"><label data-tip="Fallback worker password. Leave blank to keep current.">password (leave blank to keep current)</label>
           <input type="password" name="fallbackStratumPassword" value="" autocomplete="new-password" placeholder="usually 'x'"></div>
-        <label class="checkbox-row"><input type="checkbox" name="fallbackStratumTLS" ${sm.fallbackTls ? 'checked' : ''}> TLS</label>
-        <div class="field"><label>suggested difficulty (0 = auto)</label>
+        <label class="checkbox-row" data-tip="TLS for the fallback connection.">
+          <input type="checkbox" name="fallbackStratumTLS" ${sm.fallbackTls ? 'checked' : ''}> TLS
+        </label>
+        <div class="field"><label data-tip="Suggested difficulty for the fallback pool. 0 = auto.">suggested difficulty (0 = auto)</label>
           <input type="number" name="fallbackStratumSuggestedDifficulty" value="${sm.fallbackSuggestedDifficulty ?? 0}" min="0"></div>
       </div>
 
       <div class="pool-actions">
-        <label class="checkbox-row"><input type="checkbox" id="pool-restart" checked> restart device after apply</label>
+        <label class="checkbox-row"
+               data-tip="Bitaxe firmware applies pool changes only on a fresh stratum connection. Leaving this checked makes the change take effect immediately. If you uncheck it, you'll need to manually restart later.">
+          <input type="checkbox" id="pool-restart" checked> restart device after apply
+        </label>
         <span class="hint">Required for changes to take effect (next stratum reconnect uses the new config).</span>
-        <button class="primary" type="submit">apply pool config</button>
+        <button class="primary" type="submit" data-tip="Validate inputs, PATCH them to the device, and (if checked above) trigger a restart.">apply pool config</button>
       </div>
     </form>
   `;
@@ -254,31 +273,31 @@ function renderDetail(d) {
         </span>
       </div>
       <div class="actions">
-        <button onclick="restartDevice()">restart</button>
-        <button onclick="resetSession()">reset benchmark</button>
-        <button class="danger" onclick="removeDevice()">remove</button>
+        <button onclick="restartDevice()" data-tip="Send a restart command to the device. Comes back in ~30 seconds.">restart</button>
+        <button onclick="resetSession()" data-tip="Clear rolling averages and HW-error baseline WITHOUT changing settings. Use before measuring a new tuning.">reset benchmark</button>
+        <button class="danger" onclick="removeDevice()" data-tip="Remove this device from the dashboard. Does NOT touch the device itself — it just stops being monitored.">remove</button>
       </div>
     </div>
 
     <div class="detail-section">
-      <h2>recommendations</h2>
+      <h2 data-tip="Rule-based suggestions derived from the live telemetry. Severity colors: red = act now (overheating, errors), yellow = check soon, green = stable + tunable opportunity, blue = informational. Hover the apply button on each rec for what it will change.">recommendations</h2>
       ${recsPanel(d)}
     </div>
 
     <div class="detail-section">
       <h2>live metrics</h2>
       <div class="grid">
-        <div class="stat"><div class="l">hashrate</div><div class="v good">${m.hashRate.toFixed(1)}<span class="u">GH/s</span></div></div>
-        <div class="stat"><div class="l">frequency</div><div class="v">${m.frequency}<span class="u">MHz</span></div></div>
-        <div class="stat"><div class="l">asic temp</div><div class="v ${tempClass(m.temp, true)}">${m.temp}<span class="u">°C</span></div></div>
-        <div class="stat"><div class="l">vr temp</div><div class="v ${tempClass(m.vrTemp, false)}">${m.vrTemp}<span class="u">°C</span></div></div>
-        <div class="stat"><div class="l">core voltage</div><div class="v">${m.coreVoltage}<span class="u">mV req</span></div></div>
-        <div class="stat"><div class="l">measured</div><div class="v info">${m.voltage}<span class="u">mV</span></div></div>
-        <div class="stat"><div class="l">power draw</div><div class="v">${m.power.toFixed(2)}<span class="u">W</span></div></div>
-        <div class="stat"><div class="l">efficiency</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div></div>
+        <div class="stat" data-tip="Live hashrate this poll (instantaneous, noisy). Trust the rolling averages below for actual performance comparison."><div class="l">hashrate</div><div class="v good">${m.hashRate.toFixed(1)}<span class="u">GH/s</span></div></div>
+        <div class="stat" data-tip="Currently applied ASIC clock frequency. Set in the tune section below."><div class="l">frequency</div><div class="v">${m.frequency}<span class="u">MHz</span></div></div>
+        <div class="stat" data-tip="ASIC chip temperature. Green <60°C, yellow 60–65°C, red >65°C."><div class="l">asic temp</div><div class="v ${tempClass(m.temp, true)}">${m.temp}<span class="u">°C</span></div></div>
+        <div class="stat" data-tip="Voltage Regulator temperature — the part that fails first on overclocked boards. Watch this more closely than ASIC temp. Green <55°C, yellow 55–65°C, red >65°C."><div class="l">vr temp</div><div class="v ${tempClass(m.vrTemp, false)}">${m.vrTemp}<span class="u">°C</span></div></div>
+        <div class="stat" data-tip="Requested core voltage. The chip delivers approximately this much; see 'measured' for actual."><div class="l">core voltage</div><div class="v">${m.coreVoltage}<span class="u">mV req</span></div></div>
+        <div class="stat" data-tip="Actual voltage measured at the chip. Should be very close to requested if the VR is healthy."><div class="l">measured</div><div class="v info">${m.voltage}<span class="u">mV</span></div></div>
+        <div class="stat" data-tip="Power as reported by the chip. Wall draw is ~5–10% higher due to PSU losses."><div class="l">power draw</div><div class="v">${m.power.toFixed(2)}<span class="u">W</span></div></div>
+        <div class="stat" data-tip="Joules per terahash. Lower is more efficient. Green <16, yellow 19–22, red >22."><div class="l">efficiency</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div></div>
       </div>
 
-      <div class="rolling">
+      <div class="rolling" data-tip="Rolling hashrate averages over different windows. The 15m average is the standard for comparing tuning settings — give a new setting at least 15 minutes before deciding it's better or worse.">
         <div class="r"><div class="l">avg 1m</div><div class="v">${r['1m']}</div></div>
         <div class="r"><div class="l">avg 5m</div><div class="v">${r['5m']}</div></div>
         <div class="r"><div class="l">avg 15m</div><div class="v">${r['15m']}</div></div>
@@ -286,16 +305,16 @@ function renderDetail(d) {
       </div>
 
       <div class="grid shares-grid">
-        <div class="stat"><div class="l">shares (session)</div><div class="v good">${formatNum(sh.sessionAccepted)}<span class="u">/ ${formatNum(sh.sessionRejected)} rej</span></div></div>
-        <div class="stat"><div class="l">share rate</div><div class="v">${(sh.perMin ?? 0).toFixed(2)}<span class="u">/min</span></div></div>
-        <div class="stat"><div class="l">best diff (session)</div><div class="v info">${formatDiff(m.bestSessionDiff)}</div></div>
-        <div class="stat"><div class="l">best diff (all-time)</div><div class="v info">${formatDiff(m.bestDiff)}</div></div>
+        <div class="stat" data-tip="Shares accepted by the pool / shares rejected (HW errors), since the last benchmark reset. Reset auto-fires when you apply a new tuning."><div class="l">shares (session)</div><div class="v good">${formatNum(sh.sessionAccepted)}<span class="u">/ ${formatNum(sh.sessionRejected)} rej</span></div></div>
+        <div class="stat" data-tip="Accepted shares per minute since the session started. Stable rate = solid tuning. Erratic rate often means the chip is fighting the settings."><div class="l">share rate</div><div class="v">${(sh.perMin ?? 0).toFixed(2)}<span class="u">/min</span></div></div>
+        <div class="stat" data-tip="Highest share difficulty submitted in this session. A 'lottery' metric — bigger is better, but it's mostly luck. Useful as a session marker."><div class="l">best diff (session)</div><div class="v info">${formatDiff(m.bestSessionDiff)}</div></div>
+        <div class="stat" data-tip="Lifetime best-difficulty share since the device was last factory-reset. Bragging rights. K=thousand, M=million, G=billion, T=trillion."><div class="l">best diff (all-time)</div><div class="v info">${formatDiff(m.bestDiff)}</div></div>
       </div>
 
-      <div class="row"><span class="k">hw error rate</span><span class="v ${hwErrClass(hw.ratePct)}">${hw.ratePct}% (${hw.hwErrors}/${hw.shares + hw.hwErrors})</span></div>
-      <div class="row"><span class="k">pool difficulty</span><span class="v">${formatDiff(m.poolDifficulty)} · lifetime ${formatNum(sh.lifetimeAccepted)} accepted</span></div>
-      <div class="row"><span class="k">expected</span><span class="v">${e.expectedGhs} GH/s · actual ${e.actualPctOfExpected}%</span></div>
-      <div class="row"><span class="k">fan</span><span class="v">${m.fanSpeed} RPM · ${m.fanPercent}%${m.autofanspeed ? ' · auto' : ''}</span></div>
+      <div class="row" data-tip="Percentage of submitted work the pool rejected as invalid. Under 0.1% is great, 0.1–0.5% is OK, above 0.5% means the chip is unstable at the current settings — back off voltage or frequency."><span class="k">hw error rate</span><span class="v ${hwErrClass(hw.ratePct)}">${hw.ratePct}% (${hw.hwErrors}/${hw.shares + hw.hwErrors})</span></div>
+      <div class="row" data-tip="Current target difficulty the pool is asking for. The pool auto-adjusts this based on your hashrate so you submit shares at a sensible cadence (~every few seconds)."><span class="k">pool difficulty</span><span class="v">${formatDiff(m.poolDifficulty)} · lifetime ${formatNum(sh.lifetimeAccepted)} accepted</span></div>
+      <div class="row" data-tip="Theoretical hashrate at this frequency (frequency × 2.28 GH/s for the BM1370) and how close real performance is. Below 85% suggests the chip is throttling on errors or this particular silicon is on the lower end of the lottery."><span class="k">expected</span><span class="v">${e.expectedGhs} GH/s · actual ${e.actualPctOfExpected}%</span></div>
+      <div class="row" data-tip="Current fan RPM and duty cycle. 'auto' means firmware controls it based on temperature."><span class="k">fan</span><span class="v">${m.fanSpeed} RPM · ${m.fanPercent}%${m.autofanspeed ? ' · auto' : ''}</span></div>
 
       <div class="chart-wrap" style="margin-top: 14px">
         <div class="chart-label"><span>hashrate · last 15m</span></div>

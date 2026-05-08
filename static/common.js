@@ -143,6 +143,85 @@ function drawChart(canvas, history, key, color) {
   ctx.fill();
 }
 
+// ----- tooltip primitive -----
+// Use [data-tip="text"] on any element. Optional [data-tip-pos="top|bottom|left|right"]
+// (defaults to top). Works on dynamically rendered nodes too — handlers use event delegation.
+(function setupTooltips() {
+  let tooltipEl = null;
+  let activeTrigger = null;
+  let showTimer = null;
+
+  function ensureEl() {
+    if (tooltipEl) return tooltipEl;
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'app-tooltip';
+    tooltipEl.setAttribute('role', 'tooltip');
+    document.body.appendChild(tooltipEl);
+    return tooltipEl;
+  }
+
+  function position(trigger, el) {
+    const rect = trigger.getBoundingClientRect();
+    const pos = trigger.getAttribute('data-tip-pos') || 'top';
+    el.style.left = '0px';
+    el.style.top = '0px';
+    const elRect = el.getBoundingClientRect();
+    const margin = 8;
+    let x, y;
+    if (pos === 'bottom')      { x = rect.left + rect.width / 2 - elRect.width / 2; y = rect.bottom + margin; }
+    else if (pos === 'left')   { x = rect.left - elRect.width - margin; y = rect.top + rect.height / 2 - elRect.height / 2; }
+    else if (pos === 'right')  { x = rect.right + margin; y = rect.top + rect.height / 2 - elRect.height / 2; }
+    else                       { x = rect.left + rect.width / 2 - elRect.width / 2; y = rect.top - elRect.height - margin; }
+    x = Math.max(8, Math.min(window.innerWidth - elRect.width - 8, x));
+    y = Math.max(8, Math.min(window.innerHeight - elRect.height - 8, y));
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+  }
+
+  function show(trigger) {
+    const text = trigger.getAttribute('data-tip');
+    if (!text) return;
+    const el = ensureEl();
+    el.textContent = text;
+    activeTrigger = trigger;
+    requestAnimationFrame(() => {
+      position(trigger, el);
+      el.classList.add('visible');
+    });
+  }
+
+  function hide() {
+    clearTimeout(showTimer);
+    activeTrigger = null;
+    if (tooltipEl) tooltipEl.classList.remove('visible');
+  }
+
+  document.addEventListener('mouseover', e => {
+    const trigger = e.target && e.target.closest && e.target.closest('[data-tip]');
+    if (!trigger || trigger === activeTrigger) return;
+    clearTimeout(showTimer);
+    showTimer = setTimeout(() => show(trigger), 220);
+  });
+  document.addEventListener('mouseout', e => {
+    const trigger = e.target && e.target.closest && e.target.closest('[data-tip]');
+    if (!trigger) return;
+    hide();
+  });
+  document.addEventListener('focusin', e => {
+    const trigger = e.target && e.target.closest && e.target.closest('[data-tip]');
+    if (trigger) show(trigger);
+  });
+  document.addEventListener('focusout', e => {
+    const trigger = e.target && e.target.closest && e.target.closest('[data-tip]');
+    if (trigger) hide();
+  });
+  // ESC dismisses.
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+  // Hide while scrolling so position doesn't get stale.
+  window.addEventListener('scroll', hide, true);
+})();
+
+
 function drawTempChart(canvas, history) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;

@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.5** — Live dashboard + tuner for Bitaxe miners on your local network. One command to start; **scan the network** to find new miners, add them with a click, apply tuning, restart, edit pool config, watch the recommendation engine — all in the browser. Compact home view scales to a fleet, full detail page per device.
+**v1.6** — Live dashboard + tuner for Bitaxe miners on your local network. One command to start; **scan the network** to find new miners, add them with a click, apply tuning, restart, edit pool config, watch the recommendation engine — all in the browser. **Inline tooltips** on every metric, control, and pool field so you don't need to memorize what anything means. Compact home view scales to a fleet, full detail page per device.
 
 > ## ⚠️ Disclaimer — read this before clicking anything
 >
@@ -104,6 +104,7 @@ Click any card → full detail page.
 **Across both pages**:
 - Light or dark mode — toggle in the top-right (☀ / 🌙). Preference is stored in `localStorage` and applied per-browser.
 - Add a device from the home page toolbar — paste its IP, optionally label it, click add. The app validates the connection before saving.
+- **Hover anywhere with a help cursor** to read inline tooltips — every threshold, severity color, preset, pool field, and tune button has a one-sentence explainer. Cuts down on "what does this mean?" trial-and-error.
 
 ## Network scanner
 

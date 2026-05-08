@@ -28,29 +28,30 @@
     <div>devices <span class="v" id="device-count">0</span></div>
     <div>status <span class="v live blink">● live</span></div>
     <div>uptime <span class="v" id="page-uptime">00:00:00</span></div>
-    <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark mode" aria-label="Toggle light/dark mode">
+    <button id="theme-toggle" class="theme-toggle" aria-label="Toggle light/dark mode"
+            data-tip="Toggle between dark (terminal aesthetic) and light themes. Saved per-browser in localStorage so each device remembers your preference.">
       <span id="theme-icon">🌙</span><span id="theme-label">dark</span>
     </button>
   </div>
 </header>
 
 <section class="summary">
-  <div class="cell">
+  <div class="cell" data-tip="Sum of the live hashrate reported by every online device. Updates every 5 seconds. Bitaxe reports instantaneous hashrate which is noisy — see each device's rolling averages for the real picture.">
     <div class="label">total hashrate</div>
     <div class="val"><span id="sum-hashrate">—</span><span class="unit">GH/s</span></div>
     <div class="sub"><span id="sum-th">—</span> TH/s combined</div>
   </div>
-  <div class="cell">
+  <div class="cell" data-tip="Combined power draw of all online devices in watts. This is what the chip reports — actual wall draw is ~5–10% higher because of PSU losses.">
     <div class="label">total power</div>
     <div class="val"><span id="sum-power">—</span><span class="unit">W</span></div>
     <div class="sub">fleet draw</div>
   </div>
-  <div class="cell">
+  <div class="cell" data-tip="Power divided by hashrate, in joules per terahash. Lower is more efficient. Stock Gamma is around 17 J/TH; below 16 is excellent; above 22 means the chip is fighting the settings.">
     <div class="label">avg efficiency</div>
     <div class="val"><span id="sum-eff">—</span><span class="unit">J/TH</span></div>
     <div class="sub">lower is better</div>
   </div>
-  <div class="cell">
+  <div class="cell" data-tip="Devices currently reachable / total devices in your config. A device drops to offline after 3 consecutive failed polls (~15 seconds).">
     <div class="label">online</div>
     <div class="val"><span id="sum-online">0</span><span class="unit" id="sum-total">/0</span></div>
     <div class="sub">devices reachable</div>
@@ -60,13 +61,15 @@
 <section class="toolbar">
   <div class="add-form">
     <span class="label">+ add device</span>
-    <input type="text" id="add-ip" placeholder="192.168.1.50" size="16" autocomplete="off">
-    <input type="text" id="add-label" placeholder="gamma-01 (optional)" size="20" autocomplete="off">
+    <input type="text" id="add-ip" placeholder="192.168.1.50" size="16" autocomplete="off"
+           data-tip="The IPv4 address of your Bitaxe — same one shown on its OLED display. We hit /api/system/info to validate the connection before saving.">
+    <input type="text" id="add-label" placeholder="gamma-01 (optional)" size="20" autocomplete="off"
+           data-tip="A friendly label that shows on the card and is used as the CSV log filename. Leave blank to default to the IP with dots replaced by dashes.">
     <button class="primary" id="add-btn">add</button>
-    <button id="scan-btn" title="Scan your LAN for Bitaxes">⚡ scan network</button>
+    <button id="scan-btn" data-tip="Probes every IP in your /24 subnet (e.g. 192.168.1.1 – .254) in parallel with a 1.5s timeout each. Anything that responds with a Bitaxe-shaped JSON gets listed for one-click add. Typical scan: 4–6 seconds.">⚡ scan network</button>
   </div>
   <div class="hint">
-    click any card for full details + tuning · scan probes your /24 for any Bitaxe firmware response
+    click any card for full details + tuning · hover anywhere with a help cursor for inline tips
   </div>
 </section>
 
@@ -86,7 +89,7 @@
 <main id="devices"></main>
 
 <footer>
-  <div>Bitaxe Baller v1.5.2 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.6 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -144,9 +147,13 @@ function renderCompactDevice(d) {
   const top = topRecLine(d);
   const sevPillClass = sev === 'crit' ? 'crit' : sev === 'warn' ? 'warn' : sev === 'good' ? 'good' : '';
   const sevLabel = sev === 'crit' ? 'attention' : sev === 'warn' ? 'check' : sev === 'good' ? 'tunable' : 'stable';
+  const sevTip = sev === 'crit' ? 'Critical issue — VR or ASIC overheating, or HW errors above 1%. Open the device and act fast.'
+               : sev === 'warn' ? 'Worth a check — HW errors climbing, hashrate destabilizing, or temps elevated.'
+               : sev === 'good' ? 'Stable with headroom — there is a recommended tuning opportunity (e.g. push frequency).'
+               : 'Running clean — nothing to act on right now.';
 
   return `
-    <a class="device-link" href="${href}">
+    <a class="device-link" href="${href}" data-tip="Click to open the full detail page: charts, all metrics, tuning, fan, pool config, and event log.">
       <div class="device compact ${sevClass}" data-ip="${ip}">
         <div class="compact-head">
           <div class="left">
@@ -154,17 +161,25 @@ function renderCompactDevice(d) {
             <span class="label-name">${escapeHtml(d.label)}</span>
             <span class="label-ip">${ip}</span>
           </div>
-          <span class="severity-pill ${sevPillClass}">${sevLabel}</span>
+          <span class="severity-pill ${sevPillClass}" data-tip="${escapeHtml(sevTip)}">${sevLabel}</span>
         </div>
         <div class="compact-hero">
-          <div class="hash-big">${m.hashRate.toFixed(1)}<span class="u">GH/s</span></div>
-          <div class="hash-sub">15m avg <b>${r['15m']}</b> · ${m.frequency}MHz / ${m.coreVoltage}mV</div>
+          <div class="hash-big" data-tip="Live hashrate as reported by the device this poll. Bitaxe firmware returns instantaneous hashrate which is noisy — the 15m avg below is what to trust when comparing tuning settings.">${m.hashRate.toFixed(1)}<span class="u">GH/s</span></div>
+          <div class="hash-sub" data-tip="Currently applied frequency / core voltage. Change them on the detail page.">15m avg <b>${r['15m']}</b> · ${m.frequency}MHz / ${m.coreVoltage}mV</div>
         </div>
         <div class="compact-stats">
-          <div class="s"><div class="l">asic</div><div class="v ${tempClass(m.temp, true)}">${m.temp}<span class="u">°C</span></div></div>
-          <div class="s"><div class="l">vr</div><div class="v ${tempClass(m.vrTemp, false)}">${m.vrTemp}<span class="u">°C</span></div></div>
-          <div class="s"><div class="l">eff</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div></div>
-          <div class="s"><div class="l">shares/min</div><div class="v">${(sh.perMin ?? 0).toFixed(2)}</div></div>
+          <div class="s" data-tip="ASIC chip temperature. Green <60°C, yellow 60–65°C, red >65°C. Sustained operation over 65°C accelerates silicon degradation.">
+            <div class="l">asic</div><div class="v ${tempClass(m.temp, true)}">${m.temp}<span class="u">°C</span></div>
+          </div>
+          <div class="s" data-tip="Voltage Regulator temperature. THIS is the part that kills boards — watch it more carefully than ASIC. Green <55°C, yellow 55–65°C, red >65°C.">
+            <div class="l">vr</div><div class="v ${tempClass(m.vrTemp, false)}">${m.vrTemp}<span class="u">°C</span></div>
+          </div>
+          <div class="s" data-tip="Joules per terahash — power efficiency. Lower is better. Stock Gamma is around 17 J/TH; below 16 is excellent.">
+            <div class="l">eff</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div>
+          </div>
+          <div class="s" data-tip="Shares accepted per minute since the current benchmark session started. Stable share rate is a sign of solid tuning.">
+            <div class="l">shares/min</div><div class="v">${(sh.perMin ?? 0).toFixed(2)}</div>
+          </div>
         </div>
         <div class="compact-rec ${top.sev}">
           <span class="text">${top.html}</span>
