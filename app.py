@@ -384,6 +384,9 @@ def device_summary(s):
     freq = latest.get("frequency", 0)
     expected_ghs = freq * 2.28 if freq > 0 else 0
 
+    session_secs = max(1, time.time() - s["session_start"])
+    shares_per_min = (shares_delta / (session_secs / 60)) if session_secs >= 60 else 0
+
     return {
         "ip": s["ip"],
         "label": s["label"],
@@ -407,8 +410,17 @@ def device_summary(s):
             "sharesRejected": latest.get("sharesRejected", 0),
             "bestDiff": latest.get("bestDiff", "0"),
             "bestSessionDiff": latest.get("bestSessionDiff", "0"),
+            "poolDifficulty": latest.get("poolDifficulty", 0),
             "uptime": latest.get("uptimeSeconds", 0),
             "stratumUrl": latest.get("stratumURL", ""),
+        },
+        "shares": {
+            "sessionAccepted": max(0, shares_delta),
+            "sessionRejected": max(0, hw_delta),
+            "lifetimeAccepted": latest.get("sharesAccepted", 0),
+            "lifetimeRejected": latest.get("sharesRejected", 0),
+            "perMin": round(shares_per_min, 2),
+            "sessionSecs": int(session_secs),
         },
         "rolling": {k: round(v, 1) for k, v in avgs.items()},
         "efficiency": {

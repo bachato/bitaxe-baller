@@ -901,6 +901,24 @@ function escapeHtml(s) {
   })[c]);
 }
 
+// Bitaxe firmware returns difficulties either as raw numbers (4096, 9271000302)
+// or pre-formatted strings ("1.05M"). Normalize numeric values to K/M/G/T/P.
+function formatDiff(v) {
+  if (v == null || v === '') return '—';
+  if (typeof v === 'string' && /[a-zA-Z]/.test(v)) return v; // already formatted
+  const n = Number(v);
+  if (!isFinite(n) || n === 0) return '0';
+  const units = ['', 'K', 'M', 'G', 'T', 'P'];
+  let i = 0, x = n;
+  while (Math.abs(x) >= 1000 && i < units.length - 1) { x /= 1000; i++; }
+  return (i === 0 ? x.toString() : x.toFixed(x >= 100 ? 0 : x >= 10 ? 1 : 2)) + units[i];
+}
+
+function formatNum(n) {
+  if (n == null) return '0';
+  return Number(n).toLocaleString();
+}
+
 function tunePanel(d) {
   const open = openTunePanels.has(d.ip);
   const m = d.metrics || {};
@@ -1021,7 +1039,7 @@ function renderDevice(d) {
     `;
   }
 
-  const m = d.metrics, e = d.efficiency, hw = d.hwErrors, r = d.rolling;
+  const m = d.metrics, e = d.efficiency, hw = d.hwErrors, r = d.rolling, sh = d.shares || {};
 
   return `
     <div class="device" data-ip="${d.ip}">
@@ -1056,10 +1074,16 @@ function renderDevice(d) {
           <div class="r"><div class="l">avg 1h</div><div class="v">${r['1h']}</div></div>
         </div>
 
+        <div class="grid shares-grid">
+          <div class="stat"><div class="l">shares (session)</div><div class="v good">${formatNum(sh.sessionAccepted)}<span class="u">/ ${formatNum(sh.sessionRejected)} rej</span></div></div>
+          <div class="stat"><div class="l">share rate</div><div class="v">${sh.perMin?.toFixed?.(2) ?? '0.00'}<span class="u">/min</span></div></div>
+          <div class="stat"><div class="l">best diff (session)</div><div class="v info">${formatDiff(m.bestSessionDiff)}</div></div>
+          <div class="stat"><div class="l">best diff (all-time)</div><div class="v info">${formatDiff(m.bestDiff)}</div></div>
+        </div>
+
         <div class="row"><span class="k">hw error rate</span><span class="v ${hwErrClass(hw.ratePct)}">${hw.ratePct}% (${hw.hwErrors}/${hw.shares + hw.hwErrors})</span></div>
+        <div class="row"><span class="k">pool difficulty</span><span class="v">${formatDiff(m.poolDifficulty)} · lifetime ${formatNum(sh.lifetimeAccepted)} accepted</span></div>
         <div class="row"><span class="k">expected</span><span class="v">${e.expectedGhs} GH/s · actual ${e.actualPctOfExpected}%</span></div>
-        <div class="row"><span class="k">best diff (session)</span><span class="v">${m.bestSessionDiff}</span></div>
-        <div class="row"><span class="k">best diff (all-time)</span><span class="v">${m.bestDiff}</span></div>
         <div class="row"><span class="k">fan</span><span class="v">${m.fanSpeed} RPM · ${m.fanPercent}%${m.autofanspeed ? ' · auto' : ''}</span></div>
 
         <div class="chart-wrap">
