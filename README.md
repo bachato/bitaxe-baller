@@ -3,7 +3,7 @@
 **v1.6.1** — Live dashboard + tuner for Bitaxe miners on your local network. Native Mac app. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. Free, MIT-licensed, no telemetry.
 
 <p align="center">
-  <img src="./screenshots/home.jpg" alt="Bitaxe Baller home view — compact card per device with health border colors" width="900">
+  <img src="screenshots/home.jpg" alt="Bitaxe Baller home view — compact card per device with health border colors" width="900">
 </p>
 
 [**↓ Download for Mac**](https://bitaxeballer.com/download/mac) · [bitaxeballer.com](https://bitaxeballer.com) · [Changelog](https://bitaxeballer.com/changelog.html) · [Support / FAQ](https://bitaxeballer.com/support.html)
@@ -40,17 +40,17 @@ Then open `http://localhost:5050` (or `http://bitaxe-baller.local:5050` from any
 ## Screenshots
 
 <p align="center">
-  <img src="./screenshots/home.jpg" alt="Home view: compact card per Bitaxe with severity-colored borders" width="900">
+  <img src="screenshots/home.jpg" alt="Home view: compact card per Bitaxe with severity-colored borders" width="900">
   <br><em>Home — one card per device, scales from 3 miners to 30. Health borders flag attention.</em>
 </p>
 
 <p align="center">
-  <img src="./screenshots/detail.jpg" alt="Device detail view with charts, tuning controls, and pool config" width="900">
+  <img src="screenshots/detail.jpg" alt="Device detail view with charts, tuning controls, and pool config" width="900">
   <br><em>Detail — full metrics, hashrate + temps charts, tuning, fan, pool config, recommendations, event log.</em>
 </p>
 
 <p align="center">
-  <img src="./screenshots/scan.jpg" alt="Network scanner mid-run, cycling through IPs" width="900">
+  <img src="screenshots/scan.jpg" alt="Network scanner mid-run, cycling through IPs" width="900">
   <br><em>Network scanner — probes the host's /24 in parallel, finds Bitaxes in under 6 seconds.</em>
 </p>
 
