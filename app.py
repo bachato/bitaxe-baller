@@ -1,5 +1,5 @@
 """
-Bitaxe Bench Dashboard
+Bitaxe Baller
 Run: python app.py
 Then open http://localhost:5050 in your browser. Add devices and tune from there.
 """
@@ -520,7 +520,7 @@ def main():
     lan_ip = detect_lan_ip()
     print()
     print("=" * 64)
-    print("  bitaxe.bench  -  open the dashboard at:")
+    print("  Bitaxe Baller  -  open the dashboard at:")
     print(f"    http://localhost:{PORT}".ljust(40) + "(this machine)")
     if lan_ip:
         print(f"    http://{lan_ip}:{PORT}".ljust(40) + "(from any device on your LAN)")

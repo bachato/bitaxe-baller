@@ -1,4 +1,4 @@
-# bitaxe.bench
+# Bitaxe Baller
 
 Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network.
 

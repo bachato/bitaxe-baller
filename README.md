@@ -1,4 +1,4 @@
-# bitaxe.bench
+# Bitaxe Baller
 
 Live dashboard + tuner for Bitaxe miners on your local network. One command to start; add devices, apply tuning, restart — all in the browser.
 
