@@ -86,7 +86,7 @@
 <main id="devices"></main>
 
 <footer>
-  <div>Bitaxe Baller v1.5.1 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.5.2 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -227,16 +227,33 @@ function detectSubnetForDisplay() {
   return null;
 }
 
+function beginFlicker(subnetPrefix) {
+  if (!subnetPrefix) return;
+  const flickerEl = document.getElementById('probe-ip');
+  if (!flickerEl) return;
+  if (scanFlickerInterval) clearInterval(scanFlickerInterval);
+  let i = 1;
+  flickerEl.textContent = `${subnetPrefix}.001`;
+  document.getElementById('scan-meta').textContent = `${subnetPrefix}.0/24`;
+  scanFlickerInterval = setInterval(() => {
+    if (!flickerEl.isConnected) { clearInterval(scanFlickerInterval); scanFlickerInterval = null; return; }
+    flickerEl.textContent = `${subnetPrefix}.${String(i).padStart(3, '0')}`;
+    i = (i % 254) + 1;
+  }, 25);
+}
+
 function startScanAnimation() {
   const panel = document.getElementById('scan-results');
-  const subnetPrefix = detectSubnetForDisplay();
-  document.getElementById('scan-meta').textContent = subnetPrefix ? `${subnetPrefix}.0/24` : 'detecting subnet…';
+  // Try URL first; if the page was loaded via an IP literal we can flicker instantly.
+  const urlSubnet = detectSubnetForDisplay();
+  const initialIp = urlSubnet ? urlSubnet + '.001' : '...';
+  document.getElementById('scan-meta').textContent = urlSubnet ? `${urlSubnet}.0/24` : 'detecting subnet…';
   panel.querySelector('.scan-head .title').textContent = 'scanning network…';
   document.getElementById('scan-list').innerHTML = `
     <div class="scan-progress">
       <div class="scan-flicker">
         <span class="probe-label">probing</span>
-        <span class="probe-ip" id="probe-ip">${subnetPrefix ? subnetPrefix + '.001' : '...'}</span>
+        <span class="probe-ip" id="probe-ip">${initialIp}</span>
       </div>
       <div class="scan-bar"><div class="scan-bar-fill"></div></div>
       <div class="scan-status"><span class="blink-dot"></span>looking for Bitaxe firmware on each address…</div>
@@ -245,15 +262,13 @@ function startScanAnimation() {
   panel.hidden = false;
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-  if (subnetPrefix) {
-    let i = 1;
-    const flickerEl = document.getElementById('probe-ip');
-    if (scanFlickerInterval) clearInterval(scanFlickerInterval);
-    scanFlickerInterval = setInterval(() => {
-      if (!flickerEl.isConnected) { clearInterval(scanFlickerInterval); scanFlickerInterval = null; return; }
-      flickerEl.textContent = `${subnetPrefix}.${String(i).padStart(3, '0')}`;
-      i = (i % 254) + 1;
-    }, 25);
+  if (urlSubnet) {
+    beginFlicker(urlSubnet);
+  } else {
+    // Page loaded via localhost or bitaxe-baller.local — ask server for LAN subnet.
+    api('/api/lan-info').then(info => {
+      if (info && info.subnet_prefix) beginFlicker(info.subnet_prefix);
+    }).catch(() => {});
   }
 }
 

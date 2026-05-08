@@ -528,6 +528,18 @@ def _is_private_v4(ip):
     return False
 
 
+@app.route("/api/lan-info")
+def api_lan_info():
+    """Lightweight LAN-introspection endpoint. Used by the dashboard to render
+    the scanning animation when the page is loaded via localhost or
+    bitaxe-baller.local (i.e. the URL has no IP literal to derive the subnet from)."""
+    lan_ip = detect_lan_ip()
+    if not lan_ip or not _is_private_v4(lan_ip):
+        return jsonify({"lan_ip": lan_ip, "subnet_prefix": None, "subnet": None})
+    prefix = ".".join(lan_ip.split(".")[:3])
+    return jsonify({"lan_ip": lan_ip, "subnet_prefix": prefix, "subnet": f"{prefix}.0/24"})
+
+
 @app.route("/api/scan", methods=["POST"])
 def api_scan():
     """Scan the host's /24 LAN for Bitaxes by probing /api/system/info on
