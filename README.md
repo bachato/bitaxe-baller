@@ -2,6 +2,19 @@
 
 Live dashboard + tuner for Bitaxe miners on your local network. One command to start; add devices, apply tuning, restart — all in the browser.
 
+> ## ⚠️ Disclaimer — read this before clicking anything
+>
+> **Overclocking can permanently damage your Bitaxe.** Pushing frequency or voltage past stock raises temperatures, accelerates silicon degradation, and in extreme cases can let the magic smoke out — especially on the VR (voltage regulator), which is what kills boards. The presets and bounds in this tool are chosen to be conservative, but **conservative is not the same as safe.**
+>
+> By using Bitaxe Baller you agree that:
+>
+> - You're tuning **your own hardware at your own risk**.
+> - The author(s) and contributors are **not liable** for any damage to your miner, lost mining revenue, electricity costs, fire, water damage, voided warranties, or other consequences arising from use of this tool.
+> - The "safety bounds" baked into the app (frequency 400–700 MHz, core voltage 1000–1300 mV) are **upper guardrails, not recommendations** — sustained operation at the high end of those ranges WILL shorten chip life.
+> - Software is provided **AS-IS, without warranty of any kind**. See [LICENSE](LICENSE) once one is added; absent that, all rights reserved and no warranty is implied.
+>
+> If you don't accept this, don't click "apply." Stick to stock and you'll be fine.
+
 ## Run it
 
 ```bash
