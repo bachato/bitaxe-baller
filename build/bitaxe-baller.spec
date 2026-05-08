@@ -18,12 +18,16 @@ ROOT = os.path.abspath(os.path.dirname(SPEC) if "SPEC" in globals() else os.getc
 if not os.path.exists(os.path.join(ROOT, "app.py")):
     ROOT = os.path.abspath(os.path.join(ROOT, ".."))
 
-# zeroconf has many private submodules (zeroconf._cache, zeroconf._handlers.*,
-# zeroconf._services.*, zeroconf._protocol.*, etc) that PyInstaller's static
-# analysis can't all detect — the package uses lazy imports in places.
-# collect_submodules() walks the install and grabs every importable module,
-# which is the only reliable way to make mDNS register at runtime.
+# zeroconf has many private submodules that PyInstaller's static analysis
+# can't all detect — the package uses lazy imports in places. collect_submodules
+# walks the install and grabs every importable module.
 ZEROCONF_HIDDEN = collect_submodules("zeroconf")
+
+# pywebview ships platform-specific backends (cocoa on macOS, edgechromium on
+# Windows, gtk on Linux) loaded via importlib at runtime. Same trick: grab
+# everything in the package so the right backend module is bundled.
+WEBVIEW_HIDDEN = collect_submodules("webview")
+WEBVIEW_DATA = collect_data_files("webview")
 
 ICON_MAC = os.path.join(ROOT, "build", "icons", "icon.icns")
 ICON_WIN = os.path.join(ROOT, "build", "icons", "icon.ico")
@@ -37,8 +41,8 @@ a = Analysis(
     datas=[
         (os.path.join(ROOT, "templates"), "templates"),
         (os.path.join(ROOT, "static"), "static"),
-    ],
-    hiddenimports=ZEROCONF_HIDDEN,
+    ] + WEBVIEW_DATA,
+    hiddenimports=ZEROCONF_HIDDEN + WEBVIEW_HIDDEN,
     hookspath=[],
     runtime_hooks=[],
     excludes=[

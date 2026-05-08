@@ -964,11 +964,9 @@ def start_mdns(lan_ip, port, name=MDNS_NAME):
 
 
 def _open_browser_when_ready(url: str, delay_s: float = 1.5) -> None:
-    """In packaged-app mode, open the user's default browser shortly after
-    Flask starts listening so they see the dashboard without typing a URL.
-
-    Skipped when running from source (devs typically already have a tab),
-    unless BITAXE_BALLER_OPEN_BROWSER=1 is set explicitly."""
+    """Source-mode helper: open the user's default browser shortly after Flask
+    starts listening. Only used when BITAXE_BALLER_OPEN_BROWSER=1 is set —
+    devs running `python app.py` usually already have a tab open."""
     def _go() -> None:
         try:
             time.sleep(delay_s)
@@ -982,7 +980,61 @@ def _should_auto_open_browser() -> bool:
     override = os.environ.get("BITAXE_BALLER_OPEN_BROWSER")
     if override is not None:
         return override not in ("0", "false", "no", "")
-    return _is_frozen()
+    # Default to no auto-browser-open. Frozen mode uses pywebview instead;
+    # source mode leaves the dev to open their own tab.
+    return False
+
+
+def _wait_for_port(host: str, port: int, timeout_s: float = 8.0) -> bool:
+    """Poll until something accepts a TCP connection at host:port. Used to
+    block the webview window from opening before Flask has bound the socket."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def _run_webview(zc, info) -> None:
+    """Packaged-app entry: Flask in a daemon thread, native webview window
+    on the main thread. When the window closes, the app quits cleanly."""
+    import webview  # imported lazily so source-mode doesn't pay the import cost
+
+    def _serve() -> None:
+        # use_reloader=False is required when not on the main thread
+        app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
+
+    threading.Thread(target=_serve, daemon=True).start()
+
+    if not _wait_for_port("127.0.0.1", PORT):
+        print("[webview] Flask did not start listening within 8s — aborting", file=sys.stderr)
+        return
+
+    try:
+        webview.create_window(
+            title="Bitaxe Baller",
+            url=f"http://127.0.0.1:{PORT}",
+            width=1440,
+            height=900,
+            min_size=(960, 600),
+            background_color="#0a0d0c",
+            confirm_close=False,
+        )
+        # webview.start() blocks the main thread until the window is closed.
+        # macOS GUI work *must* happen on the main thread, hence this layout.
+        webview.start()
+    finally:
+        # Flask thread is daemonized so it dies with the process; just clean
+        # up the mDNS service so we don't leave a stale TTL on the LAN.
+        if zc is not None:
+            try:
+                zc.unregister_service(info)
+                zc.close()
+            except Exception:
+                pass
 
 
 def main():
@@ -1026,18 +1078,22 @@ def main():
         print("=" * 64)
     print()
 
-    if _should_auto_open_browser():
-        _open_browser_when_ready(_url("localhost", PORT))
-
-    try:
-        app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
-    finally:
-        if zc:
-            try:
-                zc.unregister_service(info)
-                zc.close()
-            except Exception:
-                pass
+    if _is_frozen():
+        # Packaged app: native window. Flask runs in a daemon thread.
+        _run_webview(zc, info)
+    else:
+        # Source mode: Flask blocks the main thread, dev opens their own tab.
+        if _should_auto_open_browser():
+            _open_browser_when_ready(_url("localhost", PORT))
+        try:
+            app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
+        finally:
+            if zc:
+                try:
+                    zc.unregister_service(info)
+                    zc.close()
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
