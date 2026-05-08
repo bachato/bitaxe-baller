@@ -1,18 +1,21 @@
 # Bitaxe Baller
 
-**v1.2** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Single-file frontend, no build step.
+**v1.3** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Single-file frontend, no build step.
 
 ## Run
 
 ```bash
 source venv/bin/activate
-python app.py
+python app.py                     # port 5050 (no sudo)
+sudo $(which python) app.py       # port 80 (clean URLs, e.g. http://bitaxe-baller.local)
 ```
 
-The startup banner prints three URLs:
-- `http://localhost:5050` — this machine
-- `http://<lan-ip>:5050` — auto-detected LAN IP, reachable from any device on the network
-- `http://bitaxe-baller.local:5050` — published via mDNS / Bonjour (no IP needed)
+The app prefers port 80 if it can bind it (yields cleaner URLs since browsers default to 80 for `http://`), and falls back to 5050 when it can't (typical when not running as root). Set `PORT=...` to override and skip the auto-pick.
+
+The startup banner prints every URL the dashboard is reachable on:
+- `http://localhost[:port]` — this machine
+- `http://<lan-ip>[:port]` — auto-detected LAN IP, reachable from any device on the network
+- `http://bitaxe-baller.local[:port]` — published via mDNS / Bonjour
 
 ## Architecture
 
@@ -44,10 +47,10 @@ Bounds are enforced server-side in `api_device_tune`. Never trust the browser.
 
 ## Environment variables
 
-- `PORT` (default `5050`)
-- `HOST` (default `0.0.0.0`; set to `127.0.0.1` to keep it local-only — also disables mDNS)
-- `MDNS_ENABLED` (default `1`; set to `0` to skip mDNS publication)
-- `MDNS_NAME` (default `bitaxe-baller`; the `.local` host name to publish)
+- `PORT` — explicitly pin a port. Unset → app tries `80` first (clean URL), falls back to `5050` if it can't bind (the typical non-root case).
+- `HOST` (default `0.0.0.0`; set to `127.0.0.1` to keep it local-only — also disables mDNS).
+- `MDNS_ENABLED` (default `1`; set to `0` to skip mDNS publication).
+- `MDNS_NAME` (default `bitaxe-baller`; the `.local` host name to publish).
 
 ## Conventions
 

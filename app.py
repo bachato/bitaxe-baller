@@ -655,10 +655,40 @@ def detect_lan_ip():
             return None
 
 
-PORT = int(os.environ.get("PORT", 5050))
 HOST = os.environ.get("HOST", "0.0.0.0")
 MDNS_NAME = os.environ.get("MDNS_NAME", "bitaxe-baller")
 MDNS_ENABLED = os.environ.get("MDNS_ENABLED", "1") not in ("0", "false", "no", "")
+
+
+def _can_bind(port):
+    """Best-effort check that we can bind HOST:port. Closes immediately."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((HOST, port))
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+def _pick_port():
+    """If PORT env var is set, honor it. Otherwise prefer 80 for clean URLs
+    (no :port in the address bar) and fall back to 5050 when port 80 isn't
+    available — typically because the app isn't running as root."""
+    if "PORT" in os.environ:
+        return int(os.environ["PORT"])
+    if _can_bind(80):
+        return 80
+    return 5050
+
+
+PORT = _pick_port()
+
+
+def _url(host, port):
+    """Format URL, omitting :80 since browsers default to it for http://."""
+    return f"http://{host}" if port == 80 else f"http://{host}:{port}"
 
 
 def start_mdns(lan_ip, port, name=MDNS_NAME):
@@ -708,19 +738,22 @@ def main():
     print()
     print("=" * 64)
     print("  Bitaxe Baller  -  open the dashboard at:")
-    print(f"    http://localhost:{PORT}".ljust(40) + "(this machine)")
+    print(f"    {_url('localhost', PORT)}".ljust(40) + "(this machine)")
     if lan_ip:
-        print(f"    http://{lan_ip}:{PORT}".ljust(40) + "(from any device on your LAN)")
+        print(f"    {_url(lan_ip, PORT)}".ljust(40) + "(from any device on your LAN)")
     else:
-        print(f"    http://<this-machine-ip>:{PORT}".ljust(40) + "(from other devices)")
+        print(f"    {_url('<this-machine-ip>', PORT)}".ljust(40) + "(from other devices)")
     if zc:
-        print(f"    http://{MDNS_NAME}.local:{PORT}".ljust(40) + "(via mDNS / Bonjour)")
+        print(f"    {_url(MDNS_NAME + '.local', PORT)}".ljust(40) + "(via mDNS / Bonjour)")
     print("=" * 64)
     if HOST == "0.0.0.0":
         print("  Bound to 0.0.0.0 - reachable from other devices on the network.")
         print("  macOS may prompt about incoming connections on first run; allow it.")
         if zc:
             print(f"  mDNS published as '{MDNS_NAME}.local' (Bonjour/Avahi).")
+        if PORT != 80:
+            print(f"  Tip: run with sudo to bind port 80 and drop ':{PORT}' from the URL")
+            print(f"       sudo $(which python) app.py")
         print("=" * 64)
     print()
     try:

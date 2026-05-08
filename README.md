@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.2** — Live dashboard + tuner for Bitaxe miners on your local network. One command to start; add devices, apply tuning, restart, watch the recommendation engine — all in the browser.
+**v1.3** — Live dashboard + tuner for Bitaxe miners on your local network. One command to start; add devices, apply tuning, restart, watch the recommendation engine — all in the browser.
 
 > ## ⚠️ Disclaimer — read this before clicking anything
 >
@@ -24,23 +24,46 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The startup banner prints every URL the dashboard is reachable on:
+The startup banner prints every URL the dashboard is reachable on. Two flavors depending on how you start the app:
 
-```
-http://localhost:5050              (this machine)
-http://192.168.x.x:5050            (from any device on your LAN)
-http://bitaxe-baller.local:5050    (via mDNS / Bonjour)
+```bash
+python app.py
+#   http://localhost:5050              (this machine)
+#   http://192.168.x.x:5050            (from any device on your LAN)
+#   http://bitaxe-baller.local:5050    (via mDNS / Bonjour)
+
+sudo $(which python) app.py
+#   http://localhost                   (this machine — clean URL, no port)
+#   http://192.168.x.x                 (from any device on your LAN)
+#   http://bitaxe-baller.local         (via mDNS / Bonjour — type this and you're in)
 ```
 
 Open any one. No config file editing.
+
+## Want clean URLs without `:5050`? Run with sudo
+
+The simplest URL is `http://bitaxe-baller.local` — but **port 80 requires root** on macOS and Linux. The app handles both cases gracefully:
+
+- **No env var set** → tries port 80 first, falls back to 5050 if it can't bind.
+- **Run with sudo** → port 80 succeeds; banner prints `http://bitaxe-baller.local` (no port).
+- **Run without sudo** → port 5050; banner prints `http://bitaxe-baller.local:5050`.
+- **Force a port** → set `PORT=8080 python app.py` to skip the auto-pick.
+
+So the recommended setup for the cleanest experience on a Mac you control is:
+
+```bash
+sudo $(which python) app.py
+```
+
+You'll be prompted for your password once per Terminal session. Use the venv path explicitly so sudo doesn't lose your virtualenv: `sudo $(which python)` works because `which python` resolves to the venv's interpreter while the venv is active.
 
 ## LAN access — three ways to reach the dashboard
 
 The app binds to `0.0.0.0` by default, so any device on your network can use the dashboard. Pick whichever URL is easiest:
 
-1. **`localhost:5050`** — only on the host machine.
-2. **`<lan-ip>:5050`** — works from anything on the LAN. The startup banner auto-detects and prints the right IP.
-3. **`bitaxe-baller.local:5050`** — published via mDNS (Bonjour on macOS/iOS, Avahi on Linux, native on Windows 10+). No need to remember an IP. Toggle off with `MDNS_ENABLED=0` if it ever conflicts with anything.
+1. **`localhost`** (or `localhost:5050`) — only on the host machine.
+2. **`<lan-ip>`** — works from anything on the LAN. The startup banner auto-detects and prints the right IP.
+3. **`bitaxe-baller.local`** — published via mDNS (Bonjour on macOS/iOS, Avahi on Linux, native on Windows 10+). No need to remember an IP. Toggle off with `MDNS_ENABLED=0` if it ever conflicts with anything.
 
 Headless setup (Mac mini, Mac Studio, Raspberry Pi, etc.):
 
@@ -55,7 +78,7 @@ Headless setup (Mac mini, Mac Studio, Raspberry Pi, etc.):
   MDNS_ENABLED=0 python app.py                              # keep LAN access, turn off Bonjour
   ```
 
-- **Run at login (macOS)**: drop a `launchd` plist in `~/Library/LaunchAgents/` if you want it to start on boot. Easiest path is `caffeinate -s python app.py` from a Terminal tab on the host until you're ready to formalize it.
+- **Run at login (macOS)**: drop a `launchd` plist in `~/Library/LaunchAgents/` if you want it to start on boot. A `launchd` job runs as root, so it gets port 80 automatically — no sudo prompt. Easiest interim path is `caffeinate -s sudo $(which python) app.py` from a Terminal tab on the host until you're ready to formalize it.
 
 ## What you can do in the browser
 
