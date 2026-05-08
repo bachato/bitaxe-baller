@@ -58,9 +58,11 @@
   body > header,
   body > .summary,
   body > .toolbar,
+  body > .scan-results,
   body > .disclaimer-bar,
   body > main,
-  body > footer {
+  body > footer,
+  body > .back-link {
     max-width: 1440px;
     margin-left: auto;
     margin-right: auto;
@@ -1013,15 +1015,16 @@
 
   .scan-results {
     position: relative; z-index: 1;
-    margin: 0 28px 14px;
-    border: 1px solid var(--border-bright);
+    margin-bottom: 14px;
+    border-top: 1px solid var(--border-bright);
+    border-bottom: 1px solid var(--border-bright);
     background: var(--bg-2);
   }
   .scan-results .scan-head {
     display: flex;
     align-items: baseline;
     gap: 12px;
-    padding: 10px 14px;
+    padding: 10px 28px;
     border-bottom: 1px solid var(--border);
     background: var(--accent-soft);
   }
@@ -1047,7 +1050,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
+    padding: 10px 28px;
     border-bottom: 1px solid var(--border);
   }
   .scan-row:last-child { border-bottom: none; }
@@ -1099,4 +1102,67 @@
     28%      { transform: translateY(1px) scale(1); }
     42%      { transform: translateY(1px) scale(1.18); }
     70%      { transform: translateY(1px) scale(1); }
+  }
+
+  /* =====================================================================
+     v1.5.1 — animated scanner sweep
+     ===================================================================== */
+
+  .scan-progress {
+    padding: 18px 28px 16px;
+  }
+  .scan-progress .scan-flicker {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .scan-progress .probe-label {
+    font-size: 9px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+  }
+  .scan-progress .probe-ip {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-dim);
+    letter-spacing: 0.04em;
+  }
+  .scan-progress .scan-bar {
+    position: relative;
+    height: 3px;
+    background: var(--bg-3);
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .scan-progress .scan-bar-fill {
+    position: absolute;
+    top: 0; left: -32%;
+    width: 32%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+    box-shadow: 0 0 12px var(--accent);
+    animation: scan-sweep 1.4s ease-in-out infinite;
+  }
+  @keyframes scan-sweep {
+    0%   { left: -32%; }
+    100% { left: 100%; }
+  }
+  .scan-progress .scan-status {
+    font-size: 10px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+  }
+  .scan-progress .scan-status .blink-dot {
+    display: inline-block;
+    width: 5px; height: 5px;
+    background: var(--accent);
+    border-radius: 50%;
+    margin-right: 6px;
+    animation: pulse 1.2s ease-in-out infinite;
+    vertical-align: middle;
   }

@@ -86,7 +86,7 @@
 <main id="devices"></main>
 
 <footer>
-  <div>Bitaxe Baller v1.5 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.5.1 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -217,13 +217,62 @@ document.getElementById('add-label').addEventListener('keydown', e => {
 });
 
 // ---- network scan ----
-function showScanResults(res) {
+let scanFlickerInterval = null;
+
+function detectSubnetForDisplay() {
+  // Try the URL host first; fall back to a sensible placeholder if it's not an IPv4 literal.
+  const host = window.location.hostname;
+  const m = host.match(/^(\d+)\.(\d+)\.(\d+)\.\d+$/);
+  if (m) return `${m[1]}.${m[2]}.${m[3]}`;
+  return null;
+}
+
+function startScanAnimation() {
   const panel = document.getElementById('scan-results');
+  const subnetPrefix = detectSubnetForDisplay();
+  document.getElementById('scan-meta').textContent = subnetPrefix ? `${subnetPrefix}.0/24` : 'detecting subnet…';
+  panel.querySelector('.scan-head .title').textContent = 'scanning network…';
+  document.getElementById('scan-list').innerHTML = `
+    <div class="scan-progress">
+      <div class="scan-flicker">
+        <span class="probe-label">probing</span>
+        <span class="probe-ip" id="probe-ip">${subnetPrefix ? subnetPrefix + '.001' : '...'}</span>
+      </div>
+      <div class="scan-bar"><div class="scan-bar-fill"></div></div>
+      <div class="scan-status"><span class="blink-dot"></span>looking for Bitaxe firmware on each address…</div>
+    </div>
+  `;
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  if (subnetPrefix) {
+    let i = 1;
+    const flickerEl = document.getElementById('probe-ip');
+    if (scanFlickerInterval) clearInterval(scanFlickerInterval);
+    scanFlickerInterval = setInterval(() => {
+      if (!flickerEl.isConnected) { clearInterval(scanFlickerInterval); scanFlickerInterval = null; return; }
+      flickerEl.textContent = `${subnetPrefix}.${String(i).padStart(3, '0')}`;
+      i = (i % 254) + 1;
+    }, 25);
+  }
+}
+
+function stopScanAnimation() {
+  if (scanFlickerInterval) {
+    clearInterval(scanFlickerInterval);
+    scanFlickerInterval = null;
+  }
+}
+
+function showScanResults(res) {
+  stopScanAnimation();
+  const panel = document.getElementById('scan-results');
+  panel.querySelector('.scan-head .title').textContent = 'scan results';
   const meta = document.getElementById('scan-meta');
   const list = document.getElementById('scan-list');
   meta.textContent = `${res.subnet} · ${res.scanned} addresses probed · ${res.found.length} Bitaxe${res.found.length === 1 ? '' : 's'} found${res.skipped_existing ? ` · ${res.skipped_existing} already added` : ''}`;
   if (!res.found.length) {
-    list.innerHTML = `<div class="hint" style="padding: 16px">No new Bitaxes found on ${escapeHtml(res.subnet)}. Make sure the device is powered on and on the same network as this host (${escapeHtml(res.host)}).</div>`;
+    list.innerHTML = `<div class="hint" style="padding: 16px 28px">No new Bitaxes found on ${escapeHtml(res.subnet)}. Make sure the device is powered on and on the same network as this host (${escapeHtml(res.host)}).</div>`;
   } else {
     list.innerHTML = res.found.map(f => `
       <div class="scan-row">
@@ -236,7 +285,6 @@ function showScanResults(res) {
     `).join('');
   }
   panel.hidden = false;
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 window.hideScanResults = () => { document.getElementById('scan-results').hidden = true; };
@@ -257,10 +305,15 @@ window.addFromScan = async (f) => {
 document.getElementById('scan-btn').addEventListener('click', async () => {
   const btn = document.getElementById('scan-btn');
   btn.disabled = true; btn.textContent = 'scanning…';
+  startScanAnimation();
   try {
     const res = await api('/api/scan', 'POST', {});
     showScanResults(res);
-  } catch (e) { toast('Scan failed: ' + e.message, 'error', 6000); }
+  } catch (e) {
+    stopScanAnimation();
+    hideScanResults();
+    toast('Scan failed: ' + e.message, 'error', 6000);
+  }
   finally { btn.disabled = false; btn.textContent = '⚡ scan network'; }
 });
 
