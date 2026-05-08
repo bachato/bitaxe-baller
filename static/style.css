@@ -97,20 +97,33 @@
     flex-wrap: wrap;
   }
   .brand {
-    font-family: 'Major Mono Display', monospace;
-    font-size: 22px;
-    letter-spacing: 0.05em;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--accent);
   }
-  .brand .accent { color: var(--accent); }
-  .brand .pulse {
-    display: inline-block;
-    width: 8px; height: 8px;
-    background: var(--accent);
-    border-radius: 50%;
-    margin-right: 8px;
-    box-shadow: 0 0 10px var(--accent);
-    animation: pulse 1.6s ease-in-out infinite;
+  .brand-icon {
+    width: 32px;
+    height: 32px;
+    display: block;
+    /* fill="currentColor" in the SVG → picks up .brand's color, adapting to theme */
   }
+  .brand-text {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .brand-dot {
+    font-weight: 400;
+    color: var(--accent);
+  }
+  .brand-baller {
+    color: var(--text);
+  }
+  /* Pulse keyframes still used by the live-status indicator in the meta bar */
   @keyframes pulse {
     0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
   }

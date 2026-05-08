@@ -1,28 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <defs>
-    <radialGradient id="glow" cx="50%" cy="50%" r="55%">
-      <stop offset="0%" stop-color="rgba(0,255,156,0.45)"/>
-      <stop offset="60%" stop-color="rgba(0,255,156,0.05)"/>
-      <stop offset="100%" stop-color="rgba(0,255,156,0)"/>
-    </radialGradient>
-    <radialGradient id="dot" cx="42%" cy="38%" r="58%">
-      <stop offset="0%" stop-color="#79ffc1"/>
-      <stop offset="100%" stop-color="#00ff9c"/>
-    </radialGradient>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Bitaxe Baller icon</title>
+  <desc>Bitaxe Baller pickaxe icon on dark background.</desc>
 
-  <!-- Rounded-rect background; macOS/Windows icon launchers will further mask this. -->
-  <rect width="1024" height="1024" rx="200" ry="200" fill="#0a0d0c"/>
+  <rect x="0" y="0" width="512" height="512" fill="#0a0d0c"/>
 
-  <!-- Soft accent glow centered behind the dot -->
-  <circle cx="512" cy="512" r="430" fill="url(#glow)"/>
-
-  <!-- Outer ring (the "pulse halo") -->
-  <circle cx="512" cy="512" r="290" fill="none" stroke="#00ff9c" stroke-width="14" opacity="0.42"/>
-
-  <!-- Inner solid dot — the core brand mark -->
-  <circle cx="512" cy="512" r="190" fill="url(#dot)"/>
-
-  <!-- Tiny highlight for depth -->
-  <circle cx="460" cy="450" r="34" fill="rgba(255,255,255,0.18)"/>
+  <g transform="translate(256, 240) rotate(-30) scale(1.15)">
+    <path d="M -178 30 Q -150 18 -120 0 Q -70 -42 -30 -32 Q -12 -28 0 -22 Q 12 -28 30 -32 Q 70 -42 120 0 Q 150 18 178 30 Q 168 36 156 34 Q 100 22 50 10 Q 22 4 0 4 Q -22 4 -50 10 Q -100 22 -156 34 Q -168 36 -178 30 Z" fill="#00ff9c"/>
+    <rect x="-10" y="0" width="20" height="118" rx="2" fill="#00ff9c"/>
+    <rect x="-15" y="116" width="30" height="10" rx="2" fill="#00ff9c"/>
+  </g>
 </svg>

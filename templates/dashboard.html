@@ -20,7 +20,10 @@
 
 <header>
   <div>
-    <div class="brand"><span class="pulse"></span>Bitaxe<span class="accent"> Baller</span></div>
+    <div class="brand">
+      <img src="{{ url_for('static', filename='icon.svg') }}" alt="" class="brand-icon" width="32" height="32">
+      <span class="brand-text">BITAXE<span class="brand-dot">.</span><span class="brand-baller">BALLER</span></span>
+    </div>
     <div class="subtitle">// local network monitor + tuner</div>
   </div>
   <div class="meta">
@@ -89,7 +92,7 @@
 <main id="devices"></main>
 
 <footer>
-  <div>Bitaxe Baller v1.6 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.6.1 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
