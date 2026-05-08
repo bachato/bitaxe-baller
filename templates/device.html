@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ ip }} — Bitaxe Baller</title>
+<script>
+  try {
+    var t = localStorage.getItem('theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Major+Mono+Display&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<header>
+  <div>
+    <a href="/" style="text-decoration: none; color: inherit;">
+      <div class="brand"><span class="pulse"></span>Bitaxe<span class="accent"> Baller</span></div>
+    </a>
+    <div class="subtitle">// device detail — {{ ip }}</div>
+  </div>
+  <div class="meta">
+    <div>poll <span class="v" id="poll-rate">5s</span></div>
+    <div>status <span class="v live blink" id="status-live">● live</span></div>
+    <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark mode" aria-label="Toggle light/dark mode">
+      <span id="theme-icon">🌙</span><span id="theme-label">dark</span>
+    </button>
+  </div>
+</header>
+
+<div class="disclaimer-bar">
+  ⚠ <strong>USE AT YOUR OWN RISK.</strong> Pool changes and tuning operations on this page modify your hardware. The author(s) are not liable for damaged miners, lost mining revenue, or any other consequences. See <a href="/" >home</a> or the <a href="https://github.com/465media/bitaxe-baller#readme" target="_blank" rel="noopener">README</a> for the full disclaimer.
+</div>
+
+<a class="back-link" href="/">← back to overview</a>
+
+<main id="detail-root">
+  <div class="empty"><div class="big">loading…</div></div>
+</main>
+
+<footer>
+  <div>Bitaxe Baller v1.4 · no warranty, use at your own risk</div>
+  <div>last update <span id="last-update">—</span></div>
+</footer>
+
+<div class="toast-host" id="toasts"></div>
+
+<script src="{{ url_for('static', filename='common.js') }}"></script>
+<script>
+const DEVICE_IP = {{ ip|tojson }};
+const PRESETS = {{ presets|tojson }};
+const BOUNDS = {{ bounds|tojson }};
+let openSections = { tune: true, pool: false };
+let pendingValues = {};
+
+function recsPanel(d) {
+  if (!d.recommendations || !d.recommendations.length) return '<div class="hint">No recommendations yet.</div>';
+  return `<div class="recs">${d.recommendations.map(r => `
+    <div class="rec ${r.severity}">
+      <div class="rec-body">
+        <div class="rec-title">${escapeHtml(r.title)}</div>
+        <div class="rec-detail">${escapeHtml(r.body)}</div>
+      </div>
+      ${r.action ? `<button class="rec-apply primary" onclick='applyRec(${JSON.stringify(r)})'>${escapeHtml(r.action.label || 'apply')}</button>` : ''}
+    </div>
+  `).join('')}</div>`;
+}
+
+function presetButtons() {
+  return Object.entries(PRESETS).map(([key, p]) => `
+    <button class="preset ${key === 'max' ? 'max' : ''}" onclick="applyPreset('${key}')">
+      <div class="pn">${escapeHtml(p.label)}</div>
+      <div class="ps">${p.frequency}MHz</div>
+      <div class="ps">${p.coreVoltage}mV</div>
+    </button>
+  `).join('');
+}
+
+function tunePanel(d) {
+  const m = d.metrics || {};
+  const pending = pendingValues;
+  const curFreq = pending.frequency ?? m.frequency ?? 525;
+  const curVolt = pending.coreVoltage ?? m.coreVoltage ?? 1150;
+  const fanPct = m.fanPercent ?? 100;
+  const autofan = m.autofanspeed ? 1 : 0;
+  return `
+    <div class="danger-note">
+      <strong>⚠ overclocking risk:</strong> Pushing frequency or voltage above stock can permanently degrade your Bitaxe. The author is not responsible for damaged hardware. Stick to Stock if you're unsure.
+    </div>
+
+    <div class="tune-section">
+      <div class="heading">presets</div>
+      <div class="preset-row">${presetButtons()}</div>
+    </div>
+
+    <div class="tune-section">
+      <div class="heading">manual tune</div>
+      <div class="manual">
+        <div class="field">
+          <label>frequency (${BOUNDS.frequency[0]}-${BOUNDS.frequency[1]} MHz)</label>
+          <div class="input-row">
+            <button class="step" onclick="bumpField('frequency',-25)">−25</button>
+            <button class="step" onclick="bumpField('frequency',-5)">−5</button>
+            <input type="number" id="freq-input" value="${curFreq}" min="${BOUNDS.frequency[0]}" max="${BOUNDS.frequency[1]}" step="5"
+                   oninput="setPending('frequency',this.value)">
+            <button class="step" onclick="bumpField('frequency',5)">+5</button>
+            <button class="step" onclick="bumpField('frequency',25)">+25</button>
+            <span class="unit">MHz</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>core voltage (${BOUNDS.coreVoltage[0]}-${BOUNDS.coreVoltage[1]} mV)</label>
+          <div class="input-row">
+            <button class="step" onclick="bumpField('coreVoltage',-20)">−20</button>
+            <button class="step" onclick="bumpField('coreVoltage',-5)">−5</button>
+            <input type="number" id="volt-input" value="${curVolt}" min="${BOUNDS.coreVoltage[0]}" max="${BOUNDS.coreVoltage[1]}" step="5"
+                   oninput="setPending('coreVoltage',this.value)">
+            <button class="step" onclick="bumpField('coreVoltage',5)">+5</button>
+            <button class="step" onclick="bumpField('coreVoltage',20)">+20</button>
+            <span class="unit">mV</span>
+          </div>
+        </div>
+      </div>
+      <div class="tune-actions">
+        <button class="primary" onclick="applyManual()">apply settings</button>
+        <button onclick="resetSession()">reset benchmark</button>
+        <button onclick="restartDevice()">restart device</button>
+      </div>
+      <div class="hint">
+        tip: bump frequency 25 MHz, wait 15+ minutes, watch HW error rate. baseline auto-resets when you apply settings.
+      </div>
+    </div>
+
+    <div class="tune-section">
+      <div class="heading">fan</div>
+      <div class="fan-controls">
+        <label class="auto-toggle">
+          <input type="checkbox" id="auto-fan" ${autofan ? 'checked' : ''}
+                 onchange="toggleAutoFan(this.checked)">
+          <span>auto fan</span>
+        </label>
+        <div class="manual-fan ${autofan ? 'disabled' : ''}" id="manual-fan-wrap">
+          <input type="range" min="0" max="100" step="5" value="${fanPct}" id="fan-slider"
+                 oninput="document.getElementById('fan-pct').textContent = this.value + '%'">
+          <span class="fan-pct" id="fan-pct">${fanPct}%</span>
+          <button class="primary" onclick="applyFan()">set</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function poolForm(d) {
+  const sm = d.stratum || {};
+  const usingFb = sm.usingFallback;
+  return `
+    <div class="hint" style="margin-bottom: 14px">
+      Pool changes apply on the next stratum reconnect. Toggling "restart device after apply" below will trigger that automatically — recommended.
+      <br>
+      Currently active: <strong style="color: var(--accent)">${usingFb ? 'fallback' : 'primary'}</strong>${sm.connectionInfo ? ' · ' + escapeHtml(sm.connectionInfo) : ''}
+    </div>
+    <form class="pool-form" id="pool-form" onsubmit="event.preventDefault(); applyPool();">
+      <div class="pool-block">
+        <div class="pool-block-title">
+          <span>primary stratum</span>
+          ${!usingFb ? '<span class="active-pill">active</span>' : ''}
+        </div>
+        <div class="field"><label>URL</label>
+          <input type="text" name="stratumURL" value="${escapeHtml(sm.url || '')}" placeholder="public-pool.io"></div>
+        <div class="field"><label>port</label>
+          <input type="number" name="stratumPort" value="${sm.port || ''}" min="1" max="65535"></div>
+        <div class="field"><label>worker (BTC address.workerName)</label>
+          <input type="text" name="stratumUser" value="${escapeHtml(sm.user || '')}" placeholder="bc1q…workerName"></div>
+        <div class="field"><label>password (leave blank to keep current)</label>
+          <input type="password" name="stratumPassword" value="" autocomplete="new-password" placeholder="usually 'x'"></div>
+        <label class="checkbox-row"><input type="checkbox" name="stratumTLS" ${sm.tls ? 'checked' : ''}> TLS</label>
+        <div class="field"><label>suggested difficulty (0 = auto)</label>
+          <input type="number" name="stratumSuggestedDifficulty" value="${sm.suggestedDifficulty ?? 0}" min="0"></div>
+        <div class="pool-status">connection: <span class="v">${escapeHtml(sm.connectionInfo || '—')}</span> · pool diff: <span class="v">${formatDiff(d.metrics?.poolDifficulty)}</span></div>
+      </div>
+
+      <div class="pool-block fallback">
+        <div class="pool-block-title">
+          <span>fallback stratum</span>
+          ${usingFb ? '<span class="active-pill">active</span>' : ''}
+        </div>
+        <div class="field"><label>URL</label>
+          <input type="text" name="fallbackStratumURL" value="${escapeHtml(sm.fallbackUrl || '')}" placeholder="mine.ocean.xyz"></div>
+        <div class="field"><label>port</label>
+          <input type="number" name="fallbackStratumPort" value="${sm.fallbackPort || ''}" min="1" max="65535"></div>
+        <div class="field"><label>worker (BTC address.workerName)</label>
+          <input type="text" name="fallbackStratumUser" value="${escapeHtml(sm.fallbackUser || '')}" placeholder="bc1q…workerName"></div>
+        <div class="field"><label>password (leave blank to keep current)</label>
+          <input type="password" name="fallbackStratumPassword" value="" autocomplete="new-password" placeholder="usually 'x'"></div>
+        <label class="checkbox-row"><input type="checkbox" name="fallbackStratumTLS" ${sm.fallbackTls ? 'checked' : ''}> TLS</label>
+        <div class="field"><label>suggested difficulty (0 = auto)</label>
+          <input type="number" name="fallbackStratumSuggestedDifficulty" value="${sm.fallbackSuggestedDifficulty ?? 0}" min="0"></div>
+      </div>
+
+      <div class="pool-actions">
+        <label class="checkbox-row"><input type="checkbox" id="pool-restart" checked> restart device after apply</label>
+        <span class="hint">Required for changes to take effect (next stratum reconnect uses the new config).</span>
+        <button class="primary" type="submit">apply pool config</button>
+      </div>
+    </form>
+  `;
+}
+
+function eventLog(d) {
+  if (!d.events || !d.events.length) return '<div class="hint">No events yet.</div>';
+  return `<div class="events" style="max-height: 220px">${
+    d.events.map(e => `<div class="ev"><span class="ts">${fmtTime(e.t)}</span>${escapeHtml(e.msg)}</div>`).join('')
+  }</div>`;
+}
+
+function renderDetail(d) {
+  if (!d || !d.online) {
+    return `
+      <div class="detail-hero">
+        <div class="left">
+          <div class="name">${escapeHtml(d?.label || DEVICE_IP)}</div>
+          <span class="ip">${DEVICE_IP}</span>
+          <span class="meta-line" style="color: var(--crit)">● offline</span>
+        </div>
+        <div class="actions">
+          <button onclick="restartDevice()">retry restart</button>
+          <button class="danger" onclick="removeDevice()">remove</button>
+        </div>
+      </div>
+      <div class="detail-section">
+        <h2>connection lost</h2>
+        <div class="hint">${escapeHtml(d?.lastError || 'Unable to reach device.')}</div>
+      </div>
+    `;
+  }
+
+  const m = d.metrics, e = d.efficiency, hw = d.hwErrors, r = d.rolling, sh = d.shares || {};
+
+  return `
+    <div class="detail-hero">
+      <div class="left">
+        <span class="dot"></span>
+        <div class="name" onclick="renameDevice()">${escapeHtml(d.label)}</div>
+        <span class="ip">${d.ip}</span>
+        <span class="meta-line">
+          <span class="accent">${escapeHtml(d.model || '')}</span> · ${escapeHtml(d.version || '')} ·
+          uptime ${fmtUptime(m.uptime)}
+        </span>
+      </div>
+      <div class="actions">
+        <button onclick="restartDevice()">restart</button>
+        <button onclick="resetSession()">reset benchmark</button>
+        <button class="danger" onclick="removeDevice()">remove</button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <h2>recommendations</h2>
+      ${recsPanel(d)}
+    </div>
+
+    <div class="detail-section">
+      <h2>live metrics</h2>
+      <div class="grid">
+        <div class="stat"><div class="l">hashrate</div><div class="v good">${m.hashRate.toFixed(1)}<span class="u">GH/s</span></div></div>
+        <div class="stat"><div class="l">frequency</div><div class="v">${m.frequency}<span class="u">MHz</span></div></div>
+        <div class="stat"><div class="l">asic temp</div><div class="v ${tempClass(m.temp, true)}">${m.temp}<span class="u">°C</span></div></div>
+        <div class="stat"><div class="l">vr temp</div><div class="v ${tempClass(m.vrTemp, false)}">${m.vrTemp}<span class="u">°C</span></div></div>
+        <div class="stat"><div class="l">core voltage</div><div class="v">${m.coreVoltage}<span class="u">mV req</span></div></div>
+        <div class="stat"><div class="l">measured</div><div class="v info">${m.voltage}<span class="u">mV</span></div></div>
+        <div class="stat"><div class="l">power draw</div><div class="v">${m.power.toFixed(2)}<span class="u">W</span></div></div>
+        <div class="stat"><div class="l">efficiency</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div></div>
+      </div>
+
+      <div class="rolling">
+        <div class="r"><div class="l">avg 1m</div><div class="v">${r['1m']}</div></div>
+        <div class="r"><div class="l">avg 5m</div><div class="v">${r['5m']}</div></div>
+        <div class="r"><div class="l">avg 15m</div><div class="v">${r['15m']}</div></div>
+        <div class="r"><div class="l">avg 1h</div><div class="v">${r['1h']}</div></div>
+      </div>
+
+      <div class="grid shares-grid">
+        <div class="stat"><div class="l">shares (session)</div><div class="v good">${formatNum(sh.sessionAccepted)}<span class="u">/ ${formatNum(sh.sessionRejected)} rej</span></div></div>
+        <div class="stat"><div class="l">share rate</div><div class="v">${(sh.perMin ?? 0).toFixed(2)}<span class="u">/min</span></div></div>
+        <div class="stat"><div class="l">best diff (session)</div><div class="v info">${formatDiff(m.bestSessionDiff)}</div></div>
+        <div class="stat"><div class="l">best diff (all-time)</div><div class="v info">${formatDiff(m.bestDiff)}</div></div>
+      </div>
+
+      <div class="row"><span class="k">hw error rate</span><span class="v ${hwErrClass(hw.ratePct)}">${hw.ratePct}% (${hw.hwErrors}/${hw.shares + hw.hwErrors})</span></div>
+      <div class="row"><span class="k">pool difficulty</span><span class="v">${formatDiff(m.poolDifficulty)} · lifetime ${formatNum(sh.lifetimeAccepted)} accepted</span></div>
+      <div class="row"><span class="k">expected</span><span class="v">${e.expectedGhs} GH/s · actual ${e.actualPctOfExpected}%</span></div>
+      <div class="row"><span class="k">fan</span><span class="v">${m.fanSpeed} RPM · ${m.fanPercent}%${m.autofanspeed ? ' · auto' : ''}</span></div>
+
+      <div class="chart-wrap" style="margin-top: 14px">
+        <div class="chart-label"><span>hashrate · last 15m</span></div>
+        <canvas class="chart-h" data-ip="${d.ip}"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-label"><span>temps · last 15m</span><span class="legend"><span class="a">asic</span><span class="v">vr</span></span></div>
+        <canvas class="chart-t" data-ip="${d.ip}"></canvas>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <h2>tune & control</h2>
+      ${tunePanel(d)}
+    </div>
+
+    <div class="detail-section">
+      <h2>pool / stratum config</h2>
+      ${poolForm(d)}
+    </div>
+
+    <div class="detail-section">
+      <h2>recent events</h2>
+      ${eventLog(d)}
+    </div>
+  `;
+}
+
+// ---------- actions ----------
+window.setPending = (key, val) => { pendingValues[key] = parseInt(val, 10); };
+window.bumpField = (key, delta) => {
+  const id = key === 'frequency' ? 'freq-input' : 'volt-input';
+  const el = document.getElementById(id);
+  if (!el) return;
+  let v = parseInt(el.value, 10) + delta;
+  const [lo, hi] = BOUNDS[key];
+  v = Math.max(lo, Math.min(hi, v));
+  el.value = v;
+  pendingValues[key] = v;
+};
+
+window.applyPreset = async (name) => {
+  const p = PRESETS[name];
+  if (!confirm(`Apply ${p.label}?\n\nFrequency: ${p.frequency} MHz\nCore voltage: ${p.coreVoltage} mV\n\nBenchmark will reset.`)) return;
+  try {
+    const res = await api('/api/devices/preset', 'POST', { ip: DEVICE_IP, preset: name });
+    toast(`${p.label} applied`, 'info');
+    pendingValues = {};
+    setTimeout(poll, 800);
+  } catch (e) { toast('Preset failed: ' + e.message, 'error'); }
+};
+
+window.applyManual = async () => {
+  const freq = parseInt(document.getElementById('freq-input').value, 10);
+  const volt = parseInt(document.getElementById('volt-input').value, 10);
+  if (!confirm(`Apply settings?\n\nFrequency: ${freq} MHz\nCore voltage: ${volt} mV\n\nBenchmark will reset.`)) return;
+  try {
+    await api('/api/devices/tune', 'POST', { ip: DEVICE_IP, frequency: freq, coreVoltage: volt });
+    toast(`Applied: ${freq}MHz / ${volt}mV`, 'info');
+    pendingValues = {};
+    setTimeout(poll, 800);
+  } catch (e) { toast('Apply failed: ' + e.message, 'error'); }
+};
+
+window.applyRec = async (rec) => {
+  if (!rec || !rec.action) return;
+  const desc = rec.action.label || rec.title;
+  if (!confirm(`${rec.title}\n\n${rec.body}\n\nApply: ${desc}?`)) return;
+  try {
+    if (rec.action.type === 'tune') {
+      await api('/api/devices/tune', 'POST', { ip: DEVICE_IP, ...rec.action.params });
+    } else if (rec.action.type === 'preset') {
+      await api('/api/devices/preset', 'POST', { ip: DEVICE_IP, preset: rec.action.params.preset });
+    } else if (rec.action.type === 'reset_session') {
+      await api('/api/devices/reset_session', 'POST', { ip: DEVICE_IP });
+    }
+    toast(`Applied: ${desc}`, 'info');
+    setTimeout(poll, 800);
+  } catch (e) { toast('Recommendation failed: ' + e.message, 'error'); }
+};
+
+window.toggleAutoFan = (checked) => {
+  document.getElementById('manual-fan-wrap')?.classList.toggle('disabled', checked);
+};
+
+window.applyFan = async () => {
+  const auto = document.getElementById('auto-fan')?.checked ? 1 : 0;
+  const fan = parseInt(document.getElementById('fan-slider').value, 10);
+  const body = { ip: DEVICE_IP, autofanspeed: auto };
+  if (!auto) body.fanspeed = fan;
+  try {
+    await api('/api/devices/tune', 'POST', body);
+    toast(auto ? 'Auto-fan enabled' : `Fan set to ${fan}%`, 'info');
+    setTimeout(poll, 800);
+  } catch (e) { toast('Fan set failed: ' + e.message, 'error'); }
+};
+
+window.applyPool = async () => {
+  const form = document.getElementById('pool-form');
+  if (!form) return;
+  const fd = new FormData(form);
+  const body = { ip: DEVICE_IP };
+  for (const [k, v] of fd.entries()) {
+    if (v === '' || v === null) continue;
+    body[k] = v;
+  }
+  // Checkboxes: send 0 explicitly when unchecked (FormData skips them otherwise)
+  body.stratumTLS = form.querySelector('[name=stratumTLS]').checked ? 1 : 0;
+  body.fallbackStratumTLS = form.querySelector('[name=fallbackStratumTLS]').checked ? 1 : 0;
+  if (document.getElementById('pool-restart')?.checked) body.restart = true;
+
+  if (!confirm('Apply pool config?\n\nCurrent worker passwords are kept unless you typed new ones.\n\nDevice will restart so the new pool takes effect.')) return;
+  try {
+    const res = await api('/api/devices/pool', 'POST', body);
+    toast(`Pool updated: ${(res.applied || []).join(', ')}${res.restarted ? ' · restarting…' : ''}`, 'info', 6000);
+    setTimeout(poll, 1500);
+  } catch (e) { toast('Pool update failed: ' + e.message, 'error', 6000); }
+};
+
+window.resetSession = async () => {
+  try {
+    await api('/api/devices/reset_session', 'POST', { ip: DEVICE_IP });
+    toast('Benchmark session reset', 'info');
+    setTimeout(poll, 500);
+  } catch (e) { toast('Reset failed: ' + e.message, 'error'); }
+};
+
+window.restartDevice = async () => {
+  if (!confirm(`Restart device at ${DEVICE_IP}?`)) return;
+  try {
+    await api('/api/devices/restart', 'POST', { ip: DEVICE_IP });
+    toast('Restart sent — device will reconnect in ~30s', 'info');
+  } catch (e) { toast('Restart failed: ' + e.message, 'error'); }
+};
+
+window.removeDevice = async () => {
+  if (!confirm(`Remove ${DEVICE_IP} from dashboard?\n\nThis only removes monitoring; the device keeps running.`)) return;
+  try {
+    await api('/api/devices/remove', 'POST', { ip: DEVICE_IP });
+    toast('Removed — returning to overview', 'info');
+    setTimeout(() => { window.location.href = '/'; }, 800);
+  } catch (e) { toast('Remove failed: ' + e.message, 'error'); }
+};
+
+window.renameDevice = async () => {
+  const cur = document.querySelector('.detail-hero .name')?.textContent || '';
+  const label = prompt('Rename device:', cur);
+  if (!label || label === cur) return;
+  try {
+    await api('/api/devices/rename', 'POST', { ip: DEVICE_IP, label });
+    poll();
+  } catch (e) { toast('Rename failed: ' + e.message, 'error'); }
+};
+
+async function poll() {
+  try {
+    const d = await api(`/api/device/${encodeURIComponent(DEVICE_IP)}`);
+    const root = document.getElementById('detail-root');
+    root.innerHTML = renderDetail(d);
+    if (d.online && d.history?.length) {
+      const ch = root.querySelector('canvas.chart-h');
+      const ct = root.querySelector('canvas.chart-t');
+      if (ch) drawChart(ch, d.history, 'h', '#00ff9c');
+      if (ct) drawTempChart(ct, d.history);
+    }
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error(e);
+    toast('Poll failed: ' + e.message, 'error');
+  }
+}
+
+poll();
+setInterval(poll, 5000);
+</script>
+</body>
+</html>

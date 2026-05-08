@@ -219,6 +219,18 @@ def _clamp(val, key):
     return max(lo, min(hi, val))
 
 
+_SEVERITY_RANK = {"crit": 4, "warn": 3, "good": 2, "info": 1}
+
+
+def _max_severity(recs):
+    """Highest-severity rec (excluding the 'warming up' info rec). Drives the
+    health border on the home page card. Returns None if nothing actionable."""
+    actionable = [r for r in recs if r.get("id") != "warming_up"]
+    if not actionable:
+        return None
+    return max(actionable, key=lambda r: _SEVERITY_RANK.get(r.get("severity"), 0))["severity"]
+
+
 def compute_recommendations(s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, ghs, expected_ghs):
     """Rule-based suggestions tied to current telemetry. Returns up to 3 recs,
     most-severe first. Each rec has an optional `action` the UI can fire one-click."""
@@ -360,6 +372,7 @@ def device_summary(s):
             "history": [],
             "events": list(s["events"]),
             "recommendations": [],
+            "severity": "crit" if not s["online"] else None,
         }
 
     latest = s["latest"]
@@ -386,6 +399,8 @@ def device_summary(s):
 
     session_secs = max(1, time.time() - s["session_start"])
     shares_per_min = (shares_delta / (session_secs / 60)) if session_secs >= 60 else 0
+
+    recs = compute_recommendations(s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, ghs, expected_ghs)
 
     return {
         "ip": s["ip"],
@@ -433,9 +448,22 @@ def device_summary(s):
             "hwErrors": hw_delta,
             "ratePct": round(hw_rate_pct, 3),
         },
-        "recommendations": compute_recommendations(
-            s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, ghs, expected_ghs
-        ),
+        "stratum": {
+            "url": latest.get("stratumURL", ""),
+            "port": latest.get("stratumPort", 0),
+            "user": latest.get("stratumUser", ""),
+            "tls": int(latest.get("stratumTLS", 0) or 0),
+            "suggestedDifficulty": latest.get("stratumSuggestedDifficulty", 0),
+            "fallbackUrl": latest.get("fallbackStratumURL", ""),
+            "fallbackPort": latest.get("fallbackStratumPort", 0),
+            "fallbackUser": latest.get("fallbackStratumUser", ""),
+            "fallbackTls": int(latest.get("fallbackStratumTLS", 0) or 0),
+            "fallbackSuggestedDifficulty": latest.get("fallbackStratumSuggestedDifficulty", 0),
+            "usingFallback": int(latest.get("isUsingFallbackStratum", 0) or 0),
+            "connectionInfo": latest.get("poolConnectionInfo", ""),
+        },
+        "recommendations": recs,
+        "severity": _max_severity(recs),
         "history": [
             {
                 "t": p["t"],
@@ -457,10 +485,27 @@ def index():
     return render_template("dashboard.html", presets=PRESETS, bounds=BOUNDS)
 
 
+@app.route("/device/<ip>")
+def device_detail(ip):
+    """Per-device detail page — full metrics, tuning, pool config, event log."""
+    with state_lock:
+        if ip not in state:
+            return ("Device not found. <a href='/'>Back to overview</a>", 404)
+    return render_template("device.html", ip=ip, presets=PRESETS, bounds=BOUNDS)
+
+
 @app.route("/api/devices")
 def api_devices():
     with state_lock:
         return jsonify([device_summary(s) for s in state.values()])
+
+
+@app.route("/api/device/<ip>")
+def api_device_one(ip):
+    with state_lock:
+        if ip not in state:
+            return jsonify({"error": "device not found"}), 404
+        return jsonify(device_summary(state[ip]))
 
 
 @app.route("/api/config", methods=["GET"])
@@ -620,6 +665,68 @@ def api_device_restart():
         return jsonify({"error": str(e)[:120]}), 500
     log_event(ip, "Restart command sent")
     return jsonify({"ok": True})
+
+
+POOL_FIELDS = {
+    "stratumURL", "stratumPort", "stratumUser", "stratumPassword",
+    "stratumTLS", "stratumSuggestedDifficulty",
+    "fallbackStratumURL", "fallbackStratumPort", "fallbackStratumUser", "fallbackStratumPassword",
+    "fallbackStratumTLS", "fallbackStratumSuggestedDifficulty",
+}
+
+
+@app.route("/api/devices/pool", methods=["POST"])
+def api_device_pool():
+    """Update primary and/or fallback stratum config on a device. The Bitaxe
+    firmware applies pool changes on the next stratum reconnect, so a restart
+    is usually needed. Caller is expected to follow up with /api/devices/restart
+    if `restart` is truthy in the body."""
+    body = request.get_json(force=True)
+    ip = body.get("ip")
+    if not ip:
+        return jsonify({"error": "IP required"}), 400
+
+    settings = {}
+    for key in POOL_FIELDS:
+        if key in body and body[key] not in (None, ""):
+            v = body[key]
+            if key.endswith("Port"):
+                try:
+                    v = int(v)
+                except (TypeError, ValueError):
+                    return jsonify({"error": f"{key} must be an integer"}), 400
+                if v <= 0 or v > 65535:
+                    return jsonify({"error": f"{key} out of range"}), 400
+            elif key.endswith("TLS") or key.endswith("SuggestedDifficulty"):
+                try:
+                    v = int(v)
+                except (TypeError, ValueError):
+                    return jsonify({"error": f"{key} must be an integer"}), 400
+            else:
+                v = str(v).strip()
+            settings[key] = v
+
+    if not settings:
+        return jsonify({"error": "No pool settings to apply"}), 400
+
+    try:
+        patch_device(ip, settings)
+    except Exception as e:
+        return jsonify({"error": f"Failed to apply: {str(e)[:120]}"}), 500
+
+    safe_keys = sorted(k for k in settings if "Password" not in k)
+    log_event(ip, f"Pool config updated: {', '.join(safe_keys)}")
+
+    restarted = False
+    if body.get("restart"):
+        try:
+            restart_device(ip)
+            restarted = True
+            log_event(ip, "Restart sent (pool config change)")
+        except Exception as e:
+            return jsonify({"ok": True, "applied": safe_keys, "restartError": str(e)[:120]}), 200
+
+    return jsonify({"ok": True, "applied": safe_keys, "restarted": restarted})
 
 
 @app.route("/api/devices/reset_session", methods=["POST"])

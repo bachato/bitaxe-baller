@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.3** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Single-file frontend, no build step.
+**v1.4** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Single shared stylesheet and JS helper file under `static/`. No build step.
 
 ## Run
 
@@ -19,35 +19,56 @@ The startup banner prints every URL the dashboard is reachable on:
 
 ## Architecture
 
-- `app.py` — Flask backend. Polls each device's `/api/system/info` every 5s in parallel via ThreadPoolExecutor. In-memory state behind a lock; device list persists to `config.json` (gitignored). Publishes the dashboard as an mDNS service via `zeroconf`. Computes per-device tuning recommendations from live telemetry on every summary call.
-- `templates/dashboard.html` — single-page UI, vanilla JS, no framework, no build step. Polls `/api/devices` every 5s and re-renders. Theme (dark / light) toggled in the header and persisted in `localStorage`. CSS uses theme variables on `:root[data-theme]` so both modes share one stylesheet.
-- `logs/<label>_<date>.csv` — per-device CSV time series (gitignored).
+```
+app.py                       # Flask backend
+templates/
+  dashboard.html             # home page — compact device cards
+  device.html                # per-device detail page
+static/
+  style.css                  # all CSS, shared by both pages
+  common.js                  # shared JS: theme toggle, toast, api(), formatters, charts
+logs/                        # per-device daily CSV (gitignored)
+config.json                  # device list (gitignored)
+```
 
-## Bitaxe API reference
+- `app.py` — Flask backend. Polls each device's `/api/system/info` every 5s in parallel via ThreadPoolExecutor. In-memory state behind a lock; device list persists to `config.json`. Publishes the dashboard as an mDNS service via `zeroconf`. Computes per-device tuning recommendations from live telemetry on every summary call. Each device summary carries a `severity` field (max severity of actionable recs) used for the home-card health border.
+- `templates/dashboard.html` — home page. Renders one compact card per device from `/api/devices`. Whole card is an `<a href="/device/<ip>">`. Card class includes `health-crit | health-warn | health-good | health-good` (border tint) plus an offline override.
+- `templates/device.html` — detail page. Polls `/api/device/<ip>` every 5s. Owns all the heavy controls: tune panel (presets + manual + fan), pool config form (primary + fallback), full charts, event log.
+- `static/common.js` — `applyThemeUI`, `toast()`, `api()`, formatters (`formatDiff`, `formatNum`, `fmtUptime`, `fmtTime`, `escapeHtml`), severity-class helpers (`tempClass`, `effClass`, `hwErrClass`), chart drawing (`drawChart`, `drawTempChart`).
+- Theme: dark / light variables on `:root[data-theme="dark|light"]`. Toggle button in header on both pages, persisted in `localStorage`. The inline `<script>` at the top of each page applies the saved theme synchronously to avoid a flash.
 
-- `GET /api/system/info` — full status JSON
-- `PATCH /api/system` — body `{frequency, coreVoltage, fanspeed, autofanspeed}`
+## Bitaxe API reference (device → us)
+
+- `GET /api/system/info` — full status JSON, including primary + fallback stratum config
+- `PATCH /api/system` — body keys for tuning: `frequency`, `coreVoltage`, `fanspeed`, `autofanspeed`. Body keys for pool: `stratumURL`, `stratumPort`, `stratumUser`, `stratumPassword`, `stratumTLS`, `stratumSuggestedDifficulty`, plus `fallback*` versions. Pool changes apply on the next stratum reconnect — restart the device.
 - `POST /api/system/restart`
 
 ## Internal API (browser → Flask)
 
-- `GET  /api/devices` — list with metrics, rolling avgs, hwErrors, shares, recommendations, history
+- `GET  /` — home page
+- `GET  /device/<ip>` — detail page (404s if device isn't tracked)
+- `GET  /api/devices` — list with metrics, rolling avgs, hwErrors, shares, stratum, recommendations, severity, history
+- `GET  /api/device/<ip>` — single device summary
 - `GET  /api/config`
 - `POST /api/devices/{add,remove,rename,tune,preset,restart,reset_session}`
+- `POST /api/devices/pool` — body `{ip, stratumURL?, stratumPort?, ..., fallbackStratumURL?, ..., restart?}`. Validates and PATCHes the device, optionally restarts. Empty / missing fields are skipped (worker passwords blank-by-default).
 
-The per-device summary includes a `recommendations` array of `{id, severity, title, body, action?}` objects. `action.type` is `tune` | `preset` | `reset_session`; `action.params` are the body for the matching endpoint. The frontend dispatches to the right endpoint based on `action.type`.
+The per-device summary includes a `recommendations` array of `{id, severity, title, body, action?}` objects. `action.type` is `tune` | `preset` | `reset_session`; `action.params` is the body for the matching endpoint. The frontend dispatches based on `action.type`.
+
+The `severity` field on the summary is the max severity of actionable recs (excluding `warming_up`), or `null`. Used for the home-page card health border. Offline devices always report `severity: "crit"`.
 
 ## Safety bounds (server-enforced before PATCH)
 
 - frequency: 400–700 MHz
 - coreVoltage: 1000–1300 mV
 - fanspeed: 0–100%
+- stratum port: 1–65535
 
-Bounds are enforced server-side in `api_device_tune`. Never trust the browser.
+Bounds are enforced server-side in `api_device_tune` and `api_device_pool`. Never trust the browser.
 
 ## Environment variables
 
-- `PORT` — explicitly pin a port. Unset → app tries `80` first (clean URL), falls back to `5050` if it can't bind (the typical non-root case).
+- `PORT` — explicitly pin a port. Unset → app tries `80` first (clean URL), falls back to `5050` if it can't bind.
 - `HOST` (default `0.0.0.0`; set to `127.0.0.1` to keep it local-only — also disables mDNS).
 - `MDNS_ENABLED` (default `1`; set to `0` to skip mDNS publication).
 - `MDNS_NAME` (default `bitaxe-baller`; the `.local` host name to publish).
@@ -55,12 +76,13 @@ Bounds are enforced server-side in `api_device_tune`. Never trust the browser.
 ## Conventions
 
 - No build step, no frontend framework — keep it that way.
-- Single-file HTML template, vanilla JS only.
+- Single shared `static/style.css`; theme palette via `:root[data-theme]` CSS variables. New colors should reference variables, not hex literals.
+- Single shared `static/common.js` for cross-page helpers; page-specific JS lives inline in the template at the bottom.
 - CSV log every poll, one file per device per day.
 - Tuning changes auto-reset the rolling-average and HW-error baseline so the next measurement starts clean.
 - All bounds-checking happens server-side; never trust the browser.
-- The disclaimer (README, dashboard banner, tune-panel danger note, footer) is non-negotiable — keep it visible.
-- Theme palette is centralized in `:root[data-theme="dark"]` / `:root[data-theme="light"]` CSS variables. New colors should reference variables, not hex literals.
+- The disclaimer (README, dashboard banner, tune-panel danger note, footer) is non-negotiable — keep it visible on both pages.
+- Worker passwords are write-only — never display, never echo from the device API. Pool form starts the password field blank; only sent if the user types something.
 
 ## Test device
 

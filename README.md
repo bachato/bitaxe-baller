@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.3** — Live dashboard + tuner for Bitaxe miners on your local network. One command to start; add devices, apply tuning, restart, watch the recommendation engine — all in the browser.
+**v1.4** — Live dashboard + tuner for Bitaxe miners on your local network. One command to start; add devices, apply tuning, restart, edit pool config, watch the recommendation engine — all in the browser. Compact home view scales to a fleet, full detail page per device.
 
 > ## ⚠️ Disclaimer — read this before clicking anything
 >
@@ -80,21 +80,30 @@ Headless setup (Mac mini, Mac Studio, Raspberry Pi, etc.):
 
 - **Run at login (macOS)**: drop a `launchd` plist in `~/Library/LaunchAgents/` if you want it to start on boot. A `launchd` job runs as root, so it gets port 80 automatically — no sudo prompt. Easiest interim path is `caffeinate -s sudo $(which python) app.py` from a Terminal tab on the host until you're ready to formalize it.
 
-## What you can do in the browser
+## Two views: scannable home, deep detail
 
-- **Add a device** — paste its IP at the top, optionally name it, click add. The app validates the connection before saving.
-- **Watch live metrics** — hashrate, ASIC + VR temps, power, efficiency (J/TH), HW error rate, and rolling averages over 1m / 5m / 15m / 1h.
-- **Shares & difficulty** — session shares accepted/rejected, share rate per minute, best-diff this session and all-time (formatted as 9.27G etc), pool difficulty, lifetime accepted shares.
-- **Live recommendations** — a per-device panel surfaces 0–3 prioritized tuning suggestions based on the live telemetry. Each suggestion has a one-click apply button.
-- **Charts** — hashrate and temps over the last 15 minutes per device.
-- **Tune** — click ⚙ tune & control on any device card to:
-  - Apply a preset (Stock, Mild OC, Balanced, Aggressive, Max).
-  - Manually bump frequency and core voltage with ±5 / ±25 buttons.
-  - Switch the fan to auto, or lock it at a specific manual percentage.
-  - Reset the benchmark session to start a fresh measurement.
-  - Restart the device, rename it, or remove it from the dashboard.
-- **Recent events** — every tuning change, restart, and online/offline transition is logged per device.
-- **Light or dark mode** — toggle in the top-right (☀ / 🌙). Preference is stored in `localStorage` and applied per-browser.
+**Home (`/`)** — one compact card per device, designed to scale from 3 miners to 30. Each card shows:
+- Device name + IP + online dot
+- Current hashrate (large, the headline) and 15m average
+- ASIC temp · VR temp · J/TH · share rate per minute
+- Top recommendation summary (or "All stable · no action needed")
+- A **health border** colored by the highest-severity recommendation: red for crit (something is hurting your hardware), yellow for warn (action recommended), accent-green for good (tunable opportunity), neutral for stable. Devices that need attention literally outline themselves.
+
+Click any card → full detail page.
+
+**Detail (`/device/<ip>`)** — everything you'd want to know about one miner:
+- Live metrics grid (frequency, voltage, temps, power, efficiency, etc) and the four rolling averages
+- Hashrate + temps charts
+- Shares & difficulty (session + lifetime, best diff formatted as 9.27G etc, pool difficulty)
+- **Recommendations panel** with one-click apply
+- **Tune & control**: Stock / Mild / Balanced / Aggressive / Max presets · manual frequency + voltage with ±5 / ±25 buttons · benchmark reset · restart
+- **Fan controls**: auto-fan toggle and manual percentage slider
+- **Pool / stratum config** (new in v1.4): primary + fallback URL, port, worker, password, TLS, suggested difficulty. Worker passwords aren't echoed back by the firmware so the field starts blank — leave it blank to keep the existing one. Toggle "restart device after apply" so changes take effect on the next stratum reconnect.
+- Event log per device (last 50 entries)
+
+**Across both pages**:
+- Light or dark mode — toggle in the top-right (☀ / 🌙). Preference is stored in `localStorage` and applied per-browser.
+- Add a device from the home page toolbar — paste its IP, optionally label it, click add. The app validates the connection before saving.
 
 ## Recommendation engine
 
@@ -157,3 +166,4 @@ These are conservative; the BM1370 is rated up to ~1300 mV but that's where chip
 - WebSocket push instead of 5s polling (matters at >10 devices)
 - Multi-model presets for Supra (BM1368) and Ultra (BM1366)
 - Discord / email alerts on offline or HW-error spikes
+- Bulk-apply mode: select multiple devices and push the same tuning / pool config in one shot
