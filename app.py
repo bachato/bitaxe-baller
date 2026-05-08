@@ -657,6 +657,36 @@ def detect_lan_ip():
 
 PORT = int(os.environ.get("PORT", 5050))
 HOST = os.environ.get("HOST", "0.0.0.0")
+MDNS_NAME = os.environ.get("MDNS_NAME", "bitaxe-baller")
+MDNS_ENABLED = os.environ.get("MDNS_ENABLED", "1") not in ("0", "false", "no", "")
+
+
+def start_mdns(lan_ip, port, name=MDNS_NAME):
+    """Publish an mDNS / Bonjour service so the dashboard is reachable at
+    http://<name>.local:<port> from any device on the LAN. Returns
+    (zeroconf, info) or (None, None) on any failure."""
+    try:
+        from zeroconf import IPVersion, ServiceInfo, Zeroconf
+    except ImportError:
+        print(f"[mdns] zeroconf not installed; skipping. pip install zeroconf to enable")
+        return None, None
+    if not lan_ip:
+        return None, None
+    try:
+        zc = Zeroconf(ip_version=IPVersion.V4Only)
+        info = ServiceInfo(
+            "_http._tcp.local.",
+            f"{name}._http._tcp.local.",
+            addresses=[socket.inet_aton(lan_ip)],
+            port=port,
+            properties={"path": "/"},
+            server=f"{name}.local.",
+        )
+        zc.register_service(info)
+        return zc, info
+    except Exception as e:
+        print(f"[mdns] failed to register: {e}")
+        return None, None
 
 
 def main():
@@ -670,6 +700,11 @@ def main():
     poll_thread.start()
 
     lan_ip = detect_lan_ip()
+
+    zc = info = None
+    if MDNS_ENABLED and HOST == "0.0.0.0":
+        zc, info = start_mdns(lan_ip, PORT)
+
     print()
     print("=" * 64)
     print("  Bitaxe Baller  -  open the dashboard at:")
@@ -678,13 +713,25 @@ def main():
         print(f"    http://{lan_ip}:{PORT}".ljust(40) + "(from any device on your LAN)")
     else:
         print(f"    http://<this-machine-ip>:{PORT}".ljust(40) + "(from other devices)")
+    if zc:
+        print(f"    http://{MDNS_NAME}.local:{PORT}".ljust(40) + "(via mDNS / Bonjour)")
     print("=" * 64)
     if HOST == "0.0.0.0":
         print("  Bound to 0.0.0.0 - reachable from other devices on the network.")
         print("  macOS may prompt about incoming connections on first run; allow it.")
+        if zc:
+            print(f"  mDNS published as '{MDNS_NAME}.local' (Bonjour/Avahi).")
         print("=" * 64)
     print()
-    app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
+    try:
+        app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
+    finally:
+        if zc:
+            try:
+                zc.unregister_service(info)
+                zc.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
