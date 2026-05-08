@@ -534,6 +534,85 @@
   }
   .tune-actions button { flex: 1; min-width: 110px; }
 
+  .recs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 14px;
+  }
+  .rec {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--dim);
+    font-size: 11px;
+  }
+  .rec.crit { border-left-color: var(--crit); }
+  .rec.warn { border-left-color: var(--warn); }
+  .rec.good { border-left-color: var(--accent); }
+  .rec.info { border-left-color: var(--info); }
+  .rec-body { flex: 1; min-width: 0; }
+  .rec-title {
+    font-weight: 500;
+    margin-bottom: 3px;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .rec.crit .rec-title { color: var(--crit); }
+  .rec.warn .rec-title { color: var(--warn); }
+  .rec.good .rec-title { color: var(--accent); }
+  .rec.info .rec-title { color: var(--info); }
+  .rec-detail { color: var(--dim); font-size: 10px; line-height: 1.5; }
+  .rec-apply {
+    align-self: center;
+    padding: 6px 10px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .fan-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .fan-controls .auto-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+  }
+  .fan-controls .auto-toggle input { accent-color: var(--accent); cursor: pointer; }
+  .fan-controls .manual-fan {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 220px;
+  }
+  .fan-controls .manual-fan.disabled { opacity: 0.4; pointer-events: none; }
+  .fan-controls .manual-fan input[type=range] {
+    flex: 1;
+    accent-color: var(--accent);
+    background: transparent;
+  }
+  .fan-controls .fan-pct {
+    font-size: 11px;
+    color: var(--accent);
+    min-width: 36px;
+    text-align: right;
+  }
+
   .events {
     margin-top: 10px;
     max-height: 100px;
@@ -803,12 +882,33 @@ function presetButtons(ip) {
   `).join('');
 }
 
+function recsPanel(d) {
+  if (!d.recommendations || !d.recommendations.length) return '';
+  return `<div class="recs">${d.recommendations.map(r => `
+    <div class="rec ${r.severity}">
+      <div class="rec-body">
+        <div class="rec-title">${escapeHtml(r.title)}</div>
+        <div class="rec-detail">${escapeHtml(r.body)}</div>
+      </div>
+      ${r.action ? `<button class="rec-apply primary" onclick='applyRec(${JSON.stringify(d.ip)}, ${JSON.stringify(r)})'>${escapeHtml(r.action.label || 'apply')}</button>` : ''}
+    </div>
+  `).join('')}</div>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+}
+
 function tunePanel(d) {
   const open = openTunePanels.has(d.ip);
   const m = d.metrics || {};
   const pending = pendingValues[d.ip] || {};
   const curFreq = pending.frequency ?? m.frequency ?? 525;
   const curVolt = pending.coreVoltage ?? m.coreVoltage ?? 1150;
+  const fanPct = m.fanPercent ?? 100;
+  const autofan = m.autofanspeed ? 1 : 0;
 
   return `
     <button class="tune-toggle ${open ? 'open' : ''}" onclick="toggleTune('${d.ip}')">
@@ -859,6 +959,26 @@ function tunePanel(d) {
         <div class="hint">
           tip: bump frequency 25 MHz, wait 15+ minutes, watch HW error rate. if it climbs above 0.5%,
           add 5-10 mV or back the frequency off. baseline auto-resets when you apply settings.
+        </div>
+      </div>
+
+      <div class="tune-section">
+        <div class="heading">fan</div>
+        <div class="fan-controls">
+          <label class="auto-toggle">
+            <input type="checkbox" id="auto-${d.ip}" ${autofan ? 'checked' : ''}
+                   onchange="toggleAutoFan('${d.ip}', this.checked)">
+            <span>auto fan</span>
+          </label>
+          <div class="manual-fan ${autofan ? 'disabled' : ''}" id="manual-fan-${d.ip}">
+            <input type="range" min="0" max="100" step="5" value="${fanPct}" id="fan-${d.ip}"
+                   oninput="document.getElementById('fanpct-${d.ip}').textContent = this.value + '%'">
+            <span class="fan-pct" id="fanpct-${d.ip}">${fanPct}%</span>
+            <button class="primary" onclick="applyFan('${d.ip}')">set</button>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:8px">
+          auto-fan tracks ASIC temp automatically. manual override locks fan at the chosen percentage.
         </div>
       </div>
 
@@ -917,6 +1037,7 @@ function renderDevice(d) {
         </div>
       </div>
       <div class="device-body">
+        ${recsPanel(d)}
         <div class="grid">
           <div class="stat"><div class="l">hashrate</div><div class="v good">${m.hashRate.toFixed(1)}<span class="u">GH/s</span></div></div>
           <div class="stat"><div class="l">frequency</div><div class="v">${m.frequency}<span class="u">MHz</span></div></div>
@@ -1022,6 +1143,42 @@ window.resetSession = async (ip) => {
     toast('Benchmark session reset — new rolling averages starting now', 'info');
     setTimeout(poll, 500);
   } catch (e) { toast('Reset failed: ' + e.message, 'error'); }
+};
+
+window.applyRec = async (ip, rec) => {
+  if (!rec || !rec.action) return;
+  const desc = rec.action.label || rec.title;
+  if (!confirm(`${rec.title}\n\n${rec.body}\n\nApply: ${desc}?`)) return;
+  try {
+    if (rec.action.type === 'tune') {
+      await api('/api/devices/tune', 'POST', { ip, ...rec.action.params });
+    } else if (rec.action.type === 'preset') {
+      await api('/api/devices/preset', 'POST', { ip, preset: rec.action.params.preset });
+    } else if (rec.action.type === 'reset_session') {
+      await api('/api/devices/reset_session', 'POST', { ip });
+    } else {
+      throw new Error('unknown action: ' + rec.action.type);
+    }
+    toast(`Applied: ${desc}`, 'info');
+    setTimeout(poll, 800);
+  } catch (e) { toast('Recommendation failed: ' + e.message, 'error'); }
+};
+
+window.toggleAutoFan = (ip, checked) => {
+  const wrap = document.getElementById('manual-fan-' + ip);
+  if (wrap) wrap.classList.toggle('disabled', checked);
+};
+
+window.applyFan = async (ip) => {
+  const auto = document.getElementById('auto-' + ip)?.checked ? 1 : 0;
+  const fan = parseInt(document.getElementById('fan-' + ip).value, 10);
+  const body = { ip, autofanspeed: auto };
+  if (!auto) body.fanspeed = fan;
+  try {
+    await api('/api/devices/tune', 'POST', body);
+    toast(auto ? 'Auto-fan enabled' : `Fan set to ${fan}%`, 'info');
+    setTimeout(poll, 800);
+  } catch (e) { toast('Fan set failed: ' + e.message, 'error'); }
 };
 
 window.restartDevice = async (ip) => {

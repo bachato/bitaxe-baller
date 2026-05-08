@@ -214,6 +214,142 @@ def rolling_avg(history, window_size, key="hashRate"):
     return sum(p[key] for p in pts) / len(pts)
 
 
+def _clamp(val, key):
+    lo, hi = BOUNDS[key]
+    return max(lo, min(hi, val))
+
+
+def compute_recommendations(s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, ghs, expected_ghs):
+    """Rule-based suggestions tied to current telemetry. Returns up to 3 recs,
+    most-severe first. Each rec has an optional `action` the UI can fire one-click."""
+    if not s["latest"]:
+        return []
+
+    age_s = time.time() - s["session_start"]
+    samples = len(hist)
+    latest = s["latest"]
+    freq = latest.get("frequency", 525)
+    volt = latest.get("coreVoltage", 1150)
+    asic = latest.get("temp", 0)
+    vr = latest.get("vrTemp", 0)
+    autofan = latest.get("autofanspeed", 0)
+
+    recs = []
+
+    # Need a few minutes of data before tuning suggestions are meaningful.
+    if age_s < 180 or samples < 30:
+        recs.append({
+            "id": "warming_up",
+            "severity": "info",
+            "title": "Gathering baseline data",
+            "body": f"Wait {max(0, int(180 - age_s))}s — recommendations stabilize after ~3 min of polling.",
+        })
+        return recs
+
+    # 1. CRIT: VR temp in danger zone
+    if vr >= 65:
+        new_v = _clamp(volt - 15, "coreVoltage")
+        recs.append({
+            "id": "vr_critical",
+            "severity": "crit",
+            "title": f"VR temp {vr:.0f}°C — danger zone",
+            "body": f"VR is the part that kills boards. Drop core voltage to {new_v} mV and check airflow.",
+            "action": {"type": "tune", "params": {"coreVoltage": new_v}, "label": f"set {new_v}mV"},
+        })
+
+    # 2. CRIT: HW error rate too high
+    if shares_delta >= 20 and hw_rate_pct >= 1.0:
+        new_v = _clamp(volt - 10, "coreVoltage")
+        recs.append({
+            "id": "hw_high",
+            "severity": "crit",
+            "title": f"HW error rate {hw_rate_pct:.2f}% — chip unstable",
+            "body": f"Errors above 1% mean the chip is fighting the settings. Drop core voltage to {new_v} mV.",
+            "action": {"type": "tune", "params": {"coreVoltage": new_v}, "label": f"set {new_v}mV"},
+        })
+
+    # 3. WARN: HW errors climbing (0.5 - 1%)
+    elif shares_delta >= 20 and hw_rate_pct >= 0.5:
+        new_v = _clamp(volt + 10, "coreVoltage")
+        recs.append({
+            "id": "hw_climbing",
+            "severity": "warn",
+            "title": f"HW errors at {hw_rate_pct:.2f}% — getting unstable",
+            "body": f"You can either give it more voltage ({new_v} mV) for stability, or drop frequency to back off.",
+            "action": {"type": "tune", "params": {"coreVoltage": new_v}, "label": f"add 10mV"},
+        })
+
+    # 4. WARN: ASIC running hot (and VR isn't already crit)
+    if asic >= 65 and vr < 65:
+        if autofan:
+            recs.append({
+                "id": "asic_hot",
+                "severity": "warn",
+                "title": f"ASIC at {asic:.0f}°C — hot",
+                "body": "Auto-fan is on but the chip is still climbing. Consider dropping voltage 5–10 mV or improving case airflow.",
+            })
+        else:
+            recs.append({
+                "id": "asic_hot_manual",
+                "severity": "warn",
+                "title": f"ASIC at {asic:.0f}°C — hot",
+                "body": "Switch fan to auto, or bump fan speed up.",
+                "action": {"type": "tune", "params": {"autofanspeed": 1}, "label": "enable auto-fan"},
+            })
+
+    # 5. WARN: 5m hashrate noticeably below 15m — recent destabilization
+    h5 = avgs.get("5m", 0)
+    h15 = avgs.get("15m", 0)
+    if h15 > 0 and h5 > 0 and (h5 / h15) < 0.92:
+        recs.append({
+            "id": "hash_dropping",
+            "severity": "warn",
+            "title": f"5m avg ({h5:.0f}) trailing 15m avg ({h15:.0f})",
+            "body": "Hashrate destabilized recently. Reset the benchmark to re-baseline cleanly, or back off frequency 25 MHz.",
+            "action": {"type": "reset_session", "label": "reset benchmark"},
+        })
+
+    # 6. GOOD: stable + low errors + has headroom → suggest pushing frequency
+    has_headroom_freq = freq + 25 <= BOUNDS["frequency"][1]
+    stable_long = age_s >= 900 and samples >= 150  # 15+ minutes of data
+    if (stable_long and hw_rate_pct < 0.1 and vr < 60 and asic < 60
+            and has_headroom_freq):
+        new_f = _clamp(freq + 25, "frequency")
+        recs.append({
+            "id": "push_freq",
+            "severity": "good",
+            "title": "Stable for 15m+ with headroom",
+            "body": f"Errors <0.1%, temps healthy. Try {new_f} MHz to push for more hashrate.",
+            "action": {"type": "tune", "params": {"frequency": new_f}, "label": f"try {new_f}MHz"},
+        })
+
+    # 7. INFO: underperforming vs expected (only flag after 5 min of data)
+    if (age_s >= 300 and expected_ghs > 0 and ghs > 0
+            and (ghs / expected_ghs) < 0.85):
+        pct = (ghs / expected_ghs) * 100
+        recs.append({
+            "id": "below_expected",
+            "severity": "info",
+            "title": f"Hashrate at {pct:.0f}% of expected",
+            "body": "Could be silicon lottery, or chip is throttling on errors. Check HW error rate; if 0, this is just chip variance.",
+        })
+
+    # 8. GOOD: excellent efficiency, hold the line
+    if (stable_long and j_per_th and j_per_th <= 16 and hw_rate_pct < 0.1
+            and asic < 60 and vr < 60):
+        recs.append({
+            "id": "great_eff",
+            "severity": "good",
+            "title": f"Excellent efficiency — {j_per_th:.2f} J/TH",
+            "body": "This is a solid operating point. Pushing harder may improve hashrate but cost efficiency.",
+        })
+
+    # Severity priority for trimming: crit > warn > good > info
+    order = {"crit": 0, "warn": 1, "good": 2, "info": 3}
+    recs.sort(key=lambda r: order.get(r["severity"], 9))
+    return recs[:3]
+
+
 def device_summary(s):
     if not s["latest"]:
         return {
@@ -223,6 +359,7 @@ def device_summary(s):
             "lastError": s["last_error"],
             "history": [],
             "events": list(s["events"]),
+            "recommendations": [],
         }
 
     latest = s["latest"]
@@ -263,9 +400,9 @@ def device_summary(s):
             "voltage": latest.get("voltage", 0),
             "coreVoltage": latest.get("coreVoltage", 0),
             "frequency": latest.get("frequency", 0),
-            "fanSpeed": latest.get("fanrpm", 0),
-            "fanPercent": latest.get("fanspeed", 0),
-            "autofanspeed": latest.get("autofanspeed", 0),
+            "fanSpeed": int(latest.get("fanrpm", 0) or 0),
+            "fanPercent": round(latest.get("fanspeed", 0) or 0),
+            "autofanspeed": int(latest.get("autofanspeed", 0) or 0),
             "sharesAccepted": latest.get("sharesAccepted", 0),
             "sharesRejected": latest.get("sharesRejected", 0),
             "bestDiff": latest.get("bestDiff", "0"),
@@ -284,6 +421,9 @@ def device_summary(s):
             "hwErrors": hw_delta,
             "ratePct": round(hw_rate_pct, 3),
         },
+        "recommendations": compute_recommendations(
+            s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, ghs, expected_ghs
+        ),
         "history": [
             {
                 "t": p["t"],
