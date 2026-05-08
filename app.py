@@ -1,14 +1,18 @@
 """
 Bitaxe Baller
-Run: python app.py
-Then open http://localhost:5050 in your browser. Add devices and tune from there.
+Run: python app.py    (from source)
+or:  open Bitaxe-Baller.app    (packaged release)
+
+Then your default browser opens to the dashboard. Add devices and tune.
 """
 
 import json
 import socket
+import sys
 import time
 import threading
 import os
+import webbrowser
 from collections import deque
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -16,10 +20,48 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from flask import Flask, jsonify, render_template, request
 
-app = Flask(__name__)
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
-LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+# ----- Resource & data paths -----
+# When running from source, all paths live in the repo directory (current
+# behavior). When PyInstaller-frozen, templates/static come from the bundle's
+# Resources folder (read-only) and user-writable state goes to a per-user
+# directory the OS lets us write to.
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def app_resource_dir() -> str:
+    """Where templates/ and static/ live (read-only when frozen)."""
+    if _is_frozen():
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def app_data_dir() -> str:
+    """User-writable directory for config.json and logs/. Source mode keeps
+    them next to app.py so the existing dev workflow is unchanged."""
+    if not _is_frozen():
+        return os.path.dirname(os.path.abspath(__file__))
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/Bitaxe Baller")
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "Bitaxe Baller")
+    return os.path.expanduser("~/.config/bitaxe-baller")
+
+
+_RESOURCE_DIR = app_resource_dir()
+_DATA_DIR = app_data_dir()
+os.makedirs(_DATA_DIR, exist_ok=True)
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(_RESOURCE_DIR, "templates"),
+    static_folder=os.path.join(_RESOURCE_DIR, "static"),
+)
+
+CONFIG_PATH = os.path.join(_DATA_DIR, "config.json")
+LOG_DIR = os.path.join(_DATA_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 DEFAULT_POLL = 5
@@ -905,11 +947,42 @@ def start_mdns(lan_ip, port, name=MDNS_NAME):
             properties={"path": "/"},
             server=f"{name}.local.",
         )
-        zc.register_service(info)
+        # allow_name_change=True lets zeroconf auto-suffix the name on a
+        # NonUniqueNameException — common when another Bitaxe Baller is already
+        # on the LAN (a coworker's machine, an old TTL, the dev instance still
+        # advertising). The suffixed name (bitaxe-baller-2.local, etc.) is
+        # written back into `info.name`.
+        zc.register_service(info, allow_name_change=True)
         return zc, info
     except Exception as e:
-        print(f"[mdns] failed to register: {e}")
+        # Surface the full traceback — earlier we were swallowing the actual
+        # cause (often a missing zeroconf submodule when frozen).
+        import traceback
+        print(f"[mdns] failed to register: {type(e).__name__}: {e!r}")
+        traceback.print_exc()
         return None, None
+
+
+def _open_browser_when_ready(url: str, delay_s: float = 1.5) -> None:
+    """In packaged-app mode, open the user's default browser shortly after
+    Flask starts listening so they see the dashboard without typing a URL.
+
+    Skipped when running from source (devs typically already have a tab),
+    unless BITAXE_BALLER_OPEN_BROWSER=1 is set explicitly."""
+    def _go() -> None:
+        try:
+            time.sleep(delay_s)
+            webbrowser.open(url)
+        except Exception:
+            pass
+    threading.Thread(target=_go, daemon=True).start()
+
+
+def _should_auto_open_browser() -> bool:
+    override = os.environ.get("BITAXE_BALLER_OPEN_BROWSER")
+    if override is not None:
+        return override not in ("0", "false", "no", "")
+    return _is_frozen()
 
 
 def main():
@@ -937,7 +1010,10 @@ def main():
     else:
         print(f"    {_url('<this-machine-ip>', PORT)}".ljust(40) + "(from other devices)")
     if zc:
-        print(f"    {_url(MDNS_NAME + '.local', PORT)}".ljust(40) + "(via mDNS / Bonjour)")
+        # info.server reflects the actual registered name (may be auto-suffixed
+        # by zeroconf if another instance had the original name)
+        actual_host = (info.server or f"{MDNS_NAME}.local.").rstrip(".")
+        print(f"    {_url(actual_host, PORT)}".ljust(40) + "(via mDNS / Bonjour)")
     print("=" * 64)
     if HOST == "0.0.0.0":
         print("  Bound to 0.0.0.0 - reachable from other devices on the network.")
@@ -949,6 +1025,10 @@ def main():
             print(f"       sudo $(which python) app.py")
         print("=" * 64)
     print()
+
+    if _should_auto_open_browser():
+        _open_browser_when_ready(_url("localhost", PORT))
+
     try:
         app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
     finally:
