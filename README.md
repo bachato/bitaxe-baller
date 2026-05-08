@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.4** — Live dashboard + tuner for Bitaxe miners on your local network. One command to start; add devices, apply tuning, restart, edit pool config, watch the recommendation engine — all in the browser. Compact home view scales to a fleet, full detail page per device.
+**v1.5** — Live dashboard + tuner for Bitaxe miners on your local network. One command to start; **scan the network** to find new miners, add them with a click, apply tuning, restart, edit pool config, watch the recommendation engine — all in the browser. Compact home view scales to a fleet, full detail page per device.
 
 > ## ⚠️ Disclaimer — read this before clicking anything
 >
@@ -104,6 +104,12 @@ Click any card → full detail page.
 **Across both pages**:
 - Light or dark mode — toggle in the top-right (☀ / 🌙). Preference is stored in `localStorage` and applied per-browser.
 - Add a device from the home page toolbar — paste its IP, optionally label it, click add. The app validates the connection before saving.
+
+## Network scanner
+
+Click **⚡ scan network** on the home toolbar to auto-discover Bitaxes on your LAN. The scanner probes every IP in your host's `/24` (e.g. `192.168.1.1` through `192.168.1.254`) in parallel, hits each one's `/api/system/info` with a 1.5 s timeout, and returns the ones that look like Bitaxes (i.e. respond with `hashRate` + `ASICModel`). Already-added devices and the host itself are skipped. Each result has a one-click **+ add** button.
+
+A full /24 scan typically completes in 3-6 seconds. Only RFC1918 private ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x) are scanned — public ranges are refused.
 
 ## Recommendation engine
 

@@ -513,6 +513,80 @@ def api_config_get():
     return jsonify(load_config())
 
 
+def _is_private_v4(ip):
+    """Cheap RFC1918 check so we don't accidentally scan a public range."""
+    try:
+        a, b, _, _ = (int(p) for p in ip.split("."))
+    except (ValueError, AttributeError):
+        return False
+    if a == 10:
+        return True
+    if a == 192 and b == 168:
+        return True
+    if a == 172 and 16 <= b <= 31:
+        return True
+    return False
+
+
+@app.route("/api/scan", methods=["POST"])
+def api_scan():
+    """Scan the host's /24 LAN for Bitaxes by probing /api/system/info on
+    each address in parallel. Returns the ones that respond. Already-added
+    devices and the host itself are skipped."""
+    lan_ip = detect_lan_ip()
+    if not lan_ip or not _is_private_v4(lan_ip):
+        return jsonify({"error": "couldn't detect a private LAN IP to scan"}), 400
+
+    parts = lan_ip.split(".")
+    base = ".".join(parts[:3])
+
+    with config_lock:
+        existing = {d["ip"] for d in load_config().get("devices", [])}
+
+    candidates = [
+        f"{base}.{i}" for i in range(1, 255)
+        if f"{base}.{i}" != lan_ip and f"{base}.{i}" not in existing
+    ]
+
+    def probe(ip):
+        try:
+            r = requests.get(
+                f"http://{ip}/api/system/info",
+                timeout=1.5,
+                headers={"User-Agent": "Bitaxe-Baller-Scanner"},
+            )
+            if r.status_code != 200:
+                return None
+            d = r.json()
+            # Crude Bitaxe sniff — every Bitaxe response carries hashRate + ASICModel.
+            if "hashRate" not in d or "ASICModel" not in d:
+                return None
+            return {
+                "ip": ip,
+                "hostname": d.get("hostname", ""),
+                "model": d.get("ASICModel", ""),
+                "version": d.get("version", ""),
+                "hashRate": round(d.get("hashRate", 0), 0),
+            }
+        except Exception:
+            return None
+
+    found = []
+    with ThreadPoolExecutor(max_workers=64) as ex:
+        for result in ex.map(probe, candidates, timeout=15):
+            if result:
+                found.append(result)
+
+    found.sort(key=lambda x: tuple(int(p) for p in x["ip"].split(".")))
+    return jsonify({
+        "found": found,
+        "scanned": len(candidates),
+        "subnet": f"{base}.0/24",
+        "host": lan_ip,
+        "skipped_existing": len(existing),
+    })
+
+
 @app.route("/api/devices/add", methods=["POST"])
 def api_device_add():
     body = request.get_json(force=True)

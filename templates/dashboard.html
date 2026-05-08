@@ -63,10 +63,20 @@
     <input type="text" id="add-ip" placeholder="192.168.1.50" size="16" autocomplete="off">
     <input type="text" id="add-label" placeholder="gamma-01 (optional)" size="20" autocomplete="off">
     <button class="primary" id="add-btn">add</button>
+    <button id="scan-btn" title="Scan your LAN for Bitaxes">⚡ scan network</button>
   </div>
   <div class="hint">
-    devices saved to <code>config.json</code> · CSV logs in <code>logs/</code> · click any card for full details + tuning
+    click any card for full details + tuning · scan probes your /24 for any Bitaxe firmware response
   </div>
+</section>
+
+<section class="scan-results" id="scan-results" hidden>
+  <div class="scan-head">
+    <span class="title">scan results</span>
+    <span class="meta" id="scan-meta"></span>
+    <button class="close" onclick="hideScanResults()">close ✕</button>
+  </div>
+  <div id="scan-list"></div>
 </section>
 
 <div class="disclaimer-bar">
@@ -76,7 +86,8 @@
 <main id="devices"></main>
 
 <footer>
-  <div>Bitaxe Baller v1.4 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.5 · no warranty, use at your own risk</div>
+  <div class="credits">made with <span class="heart">♥</span> by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
 
@@ -203,6 +214,54 @@ document.getElementById('add-ip').addEventListener('keydown', e => {
 });
 document.getElementById('add-label').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('add-btn').click();
+});
+
+// ---- network scan ----
+function showScanResults(res) {
+  const panel = document.getElementById('scan-results');
+  const meta = document.getElementById('scan-meta');
+  const list = document.getElementById('scan-list');
+  meta.textContent = `${res.subnet} · ${res.scanned} addresses probed · ${res.found.length} Bitaxe${res.found.length === 1 ? '' : 's'} found${res.skipped_existing ? ` · ${res.skipped_existing} already added` : ''}`;
+  if (!res.found.length) {
+    list.innerHTML = `<div class="hint" style="padding: 16px">No new Bitaxes found on ${escapeHtml(res.subnet)}. Make sure the device is powered on and on the same network as this host (${escapeHtml(res.host)}).</div>`;
+  } else {
+    list.innerHTML = res.found.map(f => `
+      <div class="scan-row">
+        <div class="info">
+          <div class="ip">${f.ip}</div>
+          <div class="meta-line">${escapeHtml(f.hostname || '(unnamed)')} · ${escapeHtml(f.model || '?')} · fw ${escapeHtml(f.version || '?')} · ${f.hashRate} GH/s</div>
+        </div>
+        <button class="primary" onclick='addFromScan(${JSON.stringify(f)})'>+ add</button>
+      </div>
+    `).join('');
+  }
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+window.hideScanResults = () => { document.getElementById('scan-results').hidden = true; };
+
+window.addFromScan = async (f) => {
+  const label = (f.hostname || f.ip.replace(/\./g, '-'));
+  try {
+    await api('/api/devices/add', 'POST', { ip: f.ip, label });
+    toast(`Added ${label}`, 'info');
+    // Remove the just-added row
+    const rows = document.querySelectorAll('#scan-list .scan-row');
+    rows.forEach(r => { if (r.querySelector('.ip')?.textContent === f.ip) r.remove(); });
+    if (!document.querySelectorAll('#scan-list .scan-row').length) hideScanResults();
+    setTimeout(poll, 500);
+  } catch (e) { toast('Add failed: ' + e.message, 'error'); }
+};
+
+document.getElementById('scan-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('scan-btn');
+  btn.disabled = true; btn.textContent = 'scanning…';
+  try {
+    const res = await api('/api/scan', 'POST', {});
+    showScanResults(res);
+  } catch (e) { toast('Scan failed: ' + e.message, 'error', 6000); }
+  finally { btn.disabled = false; btn.textContent = '⚡ scan network'; }
 });
 
 async function poll() {

@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.4** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Single shared stylesheet and JS helper file under `static/`. No build step.
+**v1.5** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Built-in LAN scanner auto-discovers new miners. Single shared stylesheet and JS helper file under `static/`. No build step.
 
 ## Run
 
@@ -52,6 +52,7 @@ config.json                  # device list (gitignored)
 - `GET  /api/config`
 - `POST /api/devices/{add,remove,rename,tune,preset,restart,reset_session}`
 - `POST /api/devices/pool` — body `{ip, stratumURL?, stratumPort?, ..., fallbackStratumURL?, ..., restart?}`. Validates and PATCHes the device, optionally restarts. Empty / missing fields are skipped (worker passwords blank-by-default).
+- `POST /api/scan` — scans the host's `/24` LAN for Bitaxes by probing `/api/system/info` on each address in parallel (64 workers, 1.5 s per request). Skips host self and already-added devices. Returns `{found, scanned, subnet, host, skipped_existing}`. RFC1918 ranges only.
 
 The per-device summary includes a `recommendations` array of `{id, severity, title, body, action?}` objects. `action.type` is `tune` | `preset` | `reset_session`; `action.params` is the body for the matching endpoint. The frontend dispatches based on `action.type`.
 

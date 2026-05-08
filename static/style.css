@@ -1006,3 +1006,97 @@
   }
   .pool-actions button { padding: 8px 14px; font-size: 11px; }
   .pool-actions .hint { flex: 1; color: var(--dim); font-size: 10px; align-self: center; }
+
+  /* =====================================================================
+     v1.5 — network scanner results + footer credits
+     ===================================================================== */
+
+  .scan-results {
+    position: relative; z-index: 1;
+    margin: 0 28px 14px;
+    border: 1px solid var(--border-bright);
+    background: var(--bg-2);
+  }
+  .scan-results .scan-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--accent-soft);
+  }
+  .scan-results .scan-head .title {
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-weight: 500;
+  }
+  .scan-results .scan-head .meta {
+    flex: 1;
+    color: var(--dim);
+    font-size: 10px;
+  }
+  .scan-results .scan-head .close {
+    padding: 4px 10px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .scan-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .scan-row:last-child { border-bottom: none; }
+  .scan-row .info { flex: 1; min-width: 0; }
+  .scan-row .ip {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .scan-row .meta-line {
+    font-size: 10px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+  .scan-row button {
+    padding: 6px 12px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    flex-shrink: 0;
+  }
+
+  /* Footer credit — center cell, themed heart with subtle pulse. */
+  footer .credits {
+    color: var(--dim);
+    text-transform: none;
+    letter-spacing: 0.05em;
+    font-size: 10px;
+  }
+  footer .credits a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--accent-dim);
+    padding-bottom: 1px;
+  }
+  footer .credits a:hover { border-bottom-color: var(--accent); }
+  footer .credits .heart {
+    display: inline-block;
+    color: #ff5577;
+    font-size: 12px;
+    margin: 0 2px;
+    transform: translateY(1px);
+    animation: heart-beat 1.6s ease-in-out infinite;
+    text-shadow: 0 0 6px rgba(255, 85, 119, 0.45);
+  }
+  @keyframes heart-beat {
+    0%, 100% { transform: translateY(1px) scale(1); }
+    14%      { transform: translateY(1px) scale(1.22); }
+    28%      { transform: translateY(1px) scale(1); }
+    42%      { transform: translateY(1px) scale(1.18); }
+    70%      { transform: translateY(1px) scale(1); }
+  }
