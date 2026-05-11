@@ -1003,6 +1003,18 @@ def _run_webview(zc, info) -> None:
     on the main thread. When the window closes, the app quits cleanly."""
     import webview  # imported lazily so source-mode doesn't pay the import cost
 
+    if sys.platform == "win32":
+        # Bind this process to an AppUserModelID so the Windows taskbar uses
+        # the icon embedded in our .exe (PyInstaller PE resource) instead of
+        # the generic Python/blank fallback. Must run before any window opens.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "com.465-media.bitaxe-baller"
+            )
+        except Exception:
+            pass  # non-fatal — falls back to whatever Windows picks
+
     def _serve() -> None:
         # use_reloader=False is required when not on the main thread
         app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
