@@ -41,33 +41,24 @@ jobs:
         run: |
           Get-ChildItem -Path dist -Recurse -Depth 2 | Format-Table -AutoSize
 
-      - name: Stage release zip + standalone .exe (for direct download)
+      - name: Rename one-file .exe for release
         shell: pwsh
         run: |
-          # PyInstaller produced dist/Bitaxe Baller/ directory containing the .exe + bundled deps
-          $stage = "dist/Bitaxe Baller"
-          if (-not (Test-Path $stage)) { throw "Expected $stage to exist" }
-
-          # Pack as a single zip the user can extract anywhere
-          Compress-Archive -Path "$stage/*" -DestinationPath "dist/Bitaxe-Baller-Windows.zip" -Force
-
-          # Also keep the .exe alone — the site's /download/windows redirects to a single file
-          Copy-Item "$stage/Bitaxe Baller.exe" "dist/Bitaxe-Baller-Windows.exe"
+          # One-file PyInstaller emits dist/Bitaxe Baller.exe directly (no folder).
+          $src = "dist/Bitaxe Baller.exe"
+          if (-not (Test-Path $src)) { throw "Expected $src to exist (one-file build output)" }
+          Copy-Item $src "dist/Bitaxe-Baller-Windows.exe"
 
       - name: Upload as workflow artifact (always)
         uses: actions/upload-artifact@v4
         with:
           name: bitaxe-baller-windows
-          path: |
-            dist/Bitaxe-Baller-Windows.exe
-            dist/Bitaxe-Baller-Windows.zip
+          path: dist/Bitaxe-Baller-Windows.exe
           retention-days: 30
 
       - name: Attach to GitHub Release (only on tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/Bitaxe-Baller-Windows.exe
-            dist/Bitaxe-Baller-Windows.zip
+          files: dist/Bitaxe-Baller-Windows.exe
           fail_on_unmatched_files: true

@@ -61,47 +61,47 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name="Bitaxe Baller",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    console=False,           # windowed — no terminal popup on launch
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,        # arm64 on Apple Silicon, x86_64 on Intel; universal2 needs special setup
-    codesign_identity=None,  # signing happens in build-mac.sh
-    entitlements_file=None,
-    icon=ICON_MAC if sys.platform == "darwin" else ICON_WIN,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="Bitaxe Baller",
-)
-
-# Wrap as a proper Mac .app bundle on macOS
 if sys.platform == "darwin":
+    # macOS: one-folder build → COLLECT → BUNDLE into a proper .app
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name="Bitaxe Baller",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,   # signing happens in build-mac.sh
+        entitlements_file=None,
+        icon=ICON_MAC,
+    )
+
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=False,
+        upx_exclude=[],
+        name="Bitaxe Baller",
+    )
+
     app = BUNDLE(
         coll,
         name="Bitaxe Baller.app",
         icon=ICON_MAC,
         bundle_identifier="com.465-media.bitaxe-baller",
-        version="1.6.2",
+        version="1.6.3",
         info_plist={
-            "CFBundleShortVersionString": "1.6.2",
-            "CFBundleVersion": "1.6.2",
+            "CFBundleShortVersionString": "1.6.3",
+            "CFBundleVersion": "1.6.3",
             "NSHumanReadableCopyright": "© 2026 Nathan Baldwin / 465 Media. MIT-licensed source.",
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,
@@ -121,4 +121,31 @@ if sys.platform == "darwin":
             # but keep agent-mode off so users see a normal dock icon and can quit.
             "LSUIElement": False,
         },
+    )
+
+else:
+    # Windows: one-file build. Everything (python312.dll, packages, templates,
+    # static, webview backend) is bundled INTO the single .exe. At launch
+    # PyInstaller's bootloader extracts to %TEMP%/_MEIxxxx and runs from there.
+    # ~2s cold-start penalty in exchange for a truly portable double-clickable
+    # binary — no _internal/ folder required next to the .exe.
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        [],
+        name="Bitaxe Baller",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        icon=ICON_WIN,
     )
