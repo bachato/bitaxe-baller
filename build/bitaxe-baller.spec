@@ -98,10 +98,10 @@ if sys.platform == "darwin":
         name="Bitaxe Baller.app",
         icon=ICON_MAC,
         bundle_identifier="com.465-media.bitaxe-baller",
-        version="1.7.0",
+        version="1.7.1",
         info_plist={
-            "CFBundleShortVersionString": "1.7.0",
-            "CFBundleVersion": "1.7.0",
+            "CFBundleShortVersionString": "1.7.1",
+            "CFBundleVersion": "1.7.1",
             "NSHumanReadableCopyright": "© 2026 Nathan Baldwin / 465 Media. MIT-licensed source.",
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,
