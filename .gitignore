@@ -21,3 +21,7 @@ build/icons/bitaxe-baller.iconset/
 
 # Apple signing credentials. NEVER commit these.
 build/.env.signing
+
+# Marketing folder — Cowork-generated blog drafts + the prompt spec live here.
+# Stays local; published versions go to the bitaxe-baller-site repo's blog dir.
+BitAxe Baller Marketing/
