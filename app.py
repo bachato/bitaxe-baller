@@ -25,7 +25,7 @@ from flask import Flask, jsonify, render_template, request
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.7.1"
+APP_VERSION = "1.7.2"
 
 
 # ----- Resource & data paths -----

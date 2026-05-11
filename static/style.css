@@ -728,6 +728,12 @@
   .disclaimer-bar strong { color: var(--warn); font-weight: 500; }
   .disclaimer-bar a { color: var(--warn); }
 
+  /* Critical: the `.update-banner` rule sets display: flex, which has the same
+     specificity as the user-agent's `[hidden] { display: none }` and lands later
+     in the cascade — so without this attribute-qualified override, `hidden`
+     gets silently ignored and the banner is always visible regardless of state.
+     Bug from v1.7.0 / v1.7.1; fixed in v1.7.2. */
+  .update-banner[hidden] { display: none; }
   .update-banner {
     position: relative; z-index: 3;
     display: flex; align-items: center; gap: 14px;
