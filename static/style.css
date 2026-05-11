@@ -728,6 +728,47 @@
   .disclaimer-bar strong { color: var(--warn); font-weight: 500; }
   .disclaimer-bar a { color: var(--warn); }
 
+  .update-banner {
+    position: relative; z-index: 1;
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 28px;
+    background: var(--accent-soft);
+    border-bottom: 1px solid var(--accent-dim);
+    font-size: 11px;
+    color: var(--text);
+    letter-spacing: 0.03em;
+  }
+  .update-banner .arrow {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .update-banner .msg { flex: 1; }
+  .update-banner .msg strong { color: var(--accent); font-weight: 500; }
+  .update-banner .notes-link {
+    color: var(--dim);
+    text-decoration: underline;
+    text-decoration-color: var(--border-bright);
+  }
+  .update-banner .notes-link:hover { color: var(--text); }
+  .update-banner .get-btn {
+    background: var(--accent);
+    color: var(--bg);
+    padding: 3px 10px;
+    border-radius: 3px;
+    text-decoration: none;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .update-banner .get-btn:hover { box-shadow: 0 0 6px var(--accent-dim); }
+  .update-banner .dismiss {
+    background: none; border: none;
+    color: var(--dim);
+    cursor: pointer; font-size: 16px; line-height: 1;
+    padding: 0 4px;
+  }
+  .update-banner .dismiss:hover { color: var(--text); }
+
   .tune-panel .danger-note {
     margin-top: 10px;
     padding: 8px 10px;

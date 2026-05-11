@@ -21,6 +21,13 @@ import requests
 from flask import Flask, jsonify, render_template, request
 
 
+# Single source of truth for the app version. The PyInstaller spec's
+# Info.plist/EXE version and the dashboard footer template should both
+# match this string. Update bump checklist: APP_VERSION here, the spec's
+# version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
+APP_VERSION = "1.7.0"
+
+
 # ----- Resource & data paths -----
 # When running from source, all paths live in the repo directory (current
 # behavior). When PyInstaller-frozen, templates/static come from the bundle's
@@ -568,6 +575,83 @@ def _is_private_v4(ip):
     if a == 172 and 16 <= b <= 31:
         return True
     return False
+
+
+# ----- Update check (banner notification) -----
+#
+# Polls GitHub Releases API to detect when a newer Bitaxe Baller version
+# has shipped. Response is cached in memory for an hour so we don't burn
+# our 60-req/hour unauthenticated API allowance — and so the dashboard's
+# repeated polls don't induce repeated network roundtrips. On any failure
+# (offline, GitHub down, rate-limited) we return newer_available=False
+# and the banner just won't appear; we never block the dashboard.
+
+_UPDATE_CHECK_URL = "https://api.github.com/repos/465media/bitaxe-baller/releases/latest"
+_UPDATE_CHECK_TTL = 3600  # 1 hour
+_update_cache: dict = {"fetched_at": 0.0, "payload": None}
+_update_cache_lock = threading.Lock()
+
+
+def _parse_semver(s: str) -> tuple:
+    """Tuple-comparable (major, minor, patch). Returns (0,0,0) on parse failure
+    so an unparseable string never claims to be newer than the running app."""
+    try:
+        nums = s.lstrip("v").split(".")[:3]
+        return tuple(int(n) for n in nums)
+    except (ValueError, AttributeError):
+        return (0, 0, 0)
+
+
+def _fetch_latest_release() -> dict:
+    """Returns the update-check payload. Cached in memory for _UPDATE_CHECK_TTL."""
+    now = time.time()
+    with _update_cache_lock:
+        cached = _update_cache["payload"]
+        if cached and (now - _update_cache["fetched_at"]) < _UPDATE_CHECK_TTL:
+            return cached
+
+    payload: dict = {
+        "current": APP_VERSION,
+        "latest": None,
+        "newer_available": False,
+        "release_url": None,
+        "platform_download_url": (
+            "https://bitaxeballer.com/download/mac"
+            if sys.platform == "darwin"
+            else "https://bitaxeballer.com/download/windows"
+        ),
+        "released_at": None,
+        "error": None,
+    }
+
+    try:
+        r = requests.get(
+            _UPDATE_CHECK_URL,
+            headers={
+                "User-Agent": f"BitaxeBaller/{APP_VERSION}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=5,
+        )
+        r.raise_for_status()
+        data = r.json()
+        latest = (data.get("tag_name") or "").lstrip("v")
+        payload["latest"] = latest
+        payload["newer_available"] = _parse_semver(latest) > _parse_semver(APP_VERSION)
+        payload["release_url"] = data.get("html_url")
+        payload["released_at"] = data.get("published_at")
+    except Exception as e:
+        payload["error"] = type(e).__name__
+
+    with _update_cache_lock:
+        _update_cache["fetched_at"] = now
+        _update_cache["payload"] = payload
+    return payload
+
+
+@app.route("/api/update-check")
+def api_update_check():
+    return jsonify(_fetch_latest_release())
 
 
 @app.route("/api/lan-info")

@@ -41,13 +41,18 @@ jobs:
         run: |
           Get-ChildItem -Path dist -Recurse -Depth 2 | Format-Table -AutoSize
 
-      - name: Rename one-file .exe for release
+      - name: Compile Inno Setup installer
         shell: pwsh
         run: |
-          # One-file PyInstaller emits dist/Bitaxe Baller.exe directly (no folder).
-          $src = "dist/Bitaxe Baller.exe"
-          if (-not (Test-Path $src)) { throw "Expected $src to exist (one-file build output)" }
-          Copy-Item $src "dist/Bitaxe-Baller-Windows.exe"
+          # One-folder PyInstaller emits dist/Bitaxe Baller/ (.exe + _internal/).
+          $stage = "dist/Bitaxe Baller"
+          if (-not (Test-Path $stage)) { throw "Expected $stage to exist (one-folder build output)" }
+          # iscc (Inno Setup compiler) is pre-installed on GitHub-hosted
+          # windows-latest runners as part of the included tooling.
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" build\installer.iss
+          if (-not (Test-Path "dist/Bitaxe-Baller-Windows.exe")) {
+            throw "Inno Setup did not produce dist/Bitaxe-Baller-Windows.exe"
+          }
 
       - name: Upload as workflow artifact (always)
         uses: actions/upload-artifact@v4

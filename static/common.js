@@ -1,5 +1,58 @@
 // Shared helpers for both the home dashboard and the device detail page.
 
+// ----- update banner -----
+// Polls /api/update-check, shows a dismissible banner if a newer release exists.
+// Dismissals are remembered per-version in localStorage so the same release
+// doesn't nag, but future releases still surface a fresh banner.
+const UPDATE_DISMISS_KEY = 'updateBanner.dismissedVersions';
+
+function _loadDismissedVersions() {
+  try {
+    const raw = localStorage.getItem(UPDATE_DISMISS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+
+function _saveDismissedVersion(version) {
+  const arr = _loadDismissedVersions();
+  if (!arr.includes(version)) arr.push(version);
+  // Cap list growth — we only care about recent versions; keep last 20.
+  while (arr.length > 20) arr.shift();
+  try { localStorage.setItem(UPDATE_DISMISS_KEY, JSON.stringify(arr)); } catch (e) {}
+}
+
+async function checkForUpdates() {
+  const host = document.getElementById('update-banner');
+  if (!host) return;
+  let data;
+  try {
+    const r = await fetch('/api/update-check');
+    if (!r.ok) return;
+    data = await r.json();
+  } catch (e) { return; }
+  if (!data || !data.newer_available || !data.latest) return;
+  if (_loadDismissedVersions().includes(data.latest)) return;
+
+  host.querySelector('.version').textContent = 'v' + data.latest;
+  const notes = host.querySelector('.notes-link');
+  if (data.release_url) {
+    notes.href = data.release_url;
+    notes.hidden = false;
+  } else {
+    notes.hidden = true;
+  }
+  const get = host.querySelector('.get-btn');
+  get.href = data.platform_download_url || 'https://bitaxeballer.com/';
+
+  host.querySelector('.dismiss').addEventListener('click', () => {
+    _saveDismissedVersion(data.latest);
+    host.hidden = true;
+  });
+  host.hidden = false;
+}
+window.addEventListener('DOMContentLoaded', checkForUpdates);
+
 // ----- theme toggle -----
 function applyThemeUI(theme) {
   document.documentElement.setAttribute('data-theme', theme);

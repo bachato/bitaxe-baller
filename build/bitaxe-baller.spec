@@ -98,10 +98,10 @@ if sys.platform == "darwin":
         name="Bitaxe Baller.app",
         icon=ICON_MAC,
         bundle_identifier="com.465-media.bitaxe-baller",
-        version="1.6.4",
+        version="1.7.0",
         info_plist={
-            "CFBundleShortVersionString": "1.6.4",
-            "CFBundleVersion": "1.6.4",
+            "CFBundleShortVersionString": "1.7.0",
+            "CFBundleVersion": "1.7.0",
             "NSHumanReadableCopyright": "© 2026 Nathan Baldwin / 465 Media. MIT-licensed source.",
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,
@@ -124,18 +124,17 @@ if sys.platform == "darwin":
     )
 
 else:
-    # Windows: one-file build. Everything (python312.dll, packages, templates,
-    # static, webview backend) is bundled INTO the single .exe. At launch
-    # PyInstaller's bootloader extracts to %TEMP%/_MEIxxxx and runs from there.
-    # ~2s cold-start penalty in exchange for a truly portable double-clickable
-    # binary — no _internal/ folder required next to the .exe.
+    # Windows: one-folder build wrapped by the Inno Setup installer
+    # (build/installer.iss). The installer puts everything under
+    # %LOCALAPPDATA%\Programs\BitaxeBaller\ with Start Menu + uninstaller
+    # registration, so the loose-folder layout doesn't bother the user.
+    # No more %TEMP%/_MEIxxxx extraction on every launch → ~2s faster
+    # cold start vs. the v1.6.x one-file build.
     exe = EXE(
         pyz,
         a.scripts,
-        a.binaries,
-        a.zipfiles,
-        a.datas,
         [],
+        exclude_binaries=True,
         name="Bitaxe Baller",
         debug=False,
         bootloader_ignore_signals=False,
@@ -148,4 +147,15 @@ else:
         codesign_identity=None,
         entitlements_file=None,
         icon=ICON_WIN,
+    )
+
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=False,
+        upx_exclude=[],
+        name="Bitaxe Baller",
     )
