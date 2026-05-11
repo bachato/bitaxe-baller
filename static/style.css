@@ -729,45 +729,47 @@
   .disclaimer-bar a { color: var(--warn); }
 
   .update-banner {
-    position: relative; z-index: 1;
+    position: relative; z-index: 3;
     display: flex; align-items: center; gap: 14px;
-    padding: 8px 28px;
-    background: var(--accent-soft);
-    border-bottom: 1px solid var(--accent-dim);
-    font-size: 11px;
-    color: var(--text);
-    letter-spacing: 0.03em;
-  }
-  .update-banner .arrow {
-    color: var(--accent);
-    font-weight: 700;
-    font-size: 13px;
-  }
-  .update-banner .msg { flex: 1; }
-  .update-banner .msg strong { color: var(--accent); font-weight: 500; }
-  .update-banner .notes-link {
-    color: var(--dim);
-    text-decoration: underline;
-    text-decoration-color: var(--border-bright);
-  }
-  .update-banner .notes-link:hover { color: var(--text); }
-  .update-banner .get-btn {
+    padding: 12px 28px;
     background: var(--accent);
     color: var(--bg);
-    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    box-shadow: 0 2px 8px var(--accent-dim);
+  }
+  .update-banner .arrow {
+    color: var(--bg);
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .update-banner .msg { flex: 1; color: var(--bg); }
+  .update-banner .msg strong { color: var(--bg); font-weight: 700; }
+  .update-banner .notes-link {
+    color: var(--bg);
+    text-decoration: underline;
+    opacity: 0.85;
+  }
+  .update-banner .notes-link:hover { opacity: 1; }
+  .update-banner .get-btn {
+    background: var(--bg);
+    color: var(--accent);
+    padding: 5px 14px;
     border-radius: 3px;
     text-decoration: none;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-weight: 700;
+    letter-spacing: 0.06em;
   }
-  .update-banner .get-btn:hover { box-shadow: 0 0 6px var(--accent-dim); }
+  .update-banner .get-btn:hover { box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); }
   .update-banner .dismiss {
     background: none; border: none;
-    color: var(--dim);
-    cursor: pointer; font-size: 16px; line-height: 1;
-    padding: 0 4px;
+    color: var(--bg);
+    cursor: pointer; font-size: 20px; line-height: 1;
+    padding: 0 6px;
+    opacity: 0.65;
   }
-  .update-banner .dismiss:hover { color: var(--text); }
+  .update-banner .dismiss:hover { opacity: 1; }
 
   .tune-panel .danger-note {
     margin-top: 10px;
