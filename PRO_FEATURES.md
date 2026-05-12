@@ -1,0 +1,76 @@
+# Pro tier roadmap
+
+Running list of features destined for the paid tier. The free tier (current public builds, v1.6+) stays fully functional; Pro is additive — bulk operations, automation, alerts, persistent history.
+
+This doc is the source of truth as features get scoped, designed, or implemented. Add items as they come up. Strike them through when shipped.
+
+---
+
+## Confirmed for v1.0 Pro launch
+
+### Auto-updates (in-place / "Chrome-style")
+- Real Sparkle (Mac) + WinSparkle (Windows) integration. App downloads new version in the background, prompts on next launch, replaces itself, restarts.
+- Free tier ships the lighter [v1.7 update banner](app.py) — *tells* users when an update exists, click to manually re-install. Pro tier ships the real auto-install flow.
+- **Hard dependency:** Windows code-signing certificate ($120-400/yr). Without it every auto-update fires SmartScreen, defeating the point.
+- **Hard dependency:** appcast.xml hosted on bitaxeballer.com with Ed25519 signatures on each release. Update channel = remote code execution if signatures aren't enforced.
+- Failure recovery: if the new binary crashes on launch, roll back to the previous version automatically. Don't brick paid users.
+
+### Bulk tuning across selected devices
+- Multi-select device cards on the home page (checkbox per card, "select all" toolbar).
+- Apply preset, frequency, voltage, or fan setting to every selected device in one click.
+- Most-asked-for usability win when running >2 miners. "Set my whole fleet to Balanced" without 8 separate visits.
+
+### Auto-tune sweeps with HW-error guardrails
+- Per-device automated frequency + voltage sweep that probes each chip's actual stable ceiling.
+- Backs off on HW-error spike → records last known good → resumes from a safer point.
+- Reports a personalized "Balanced+" preset based on the chip's measured headroom.
+- Free tier ships fixed presets (Stock/Mild/Balanced/Aggressive/Max). Pro tier learns the chip.
+
+### Long-term history
+- Free tier keeps a rolling 1h window in memory + daily CSVs in the user's data dir.
+- Pro tier writes to persistent local SQLite — hashrate, temps, efficiency, HW errors going back weeks/months.
+- Powers the kind of question the CSVs don't: "did my Gamma's efficiency drift down 3% over the last 60 days?"
+
+### Alerts
+- Push notifications when a device goes offline > N minutes.
+- HW-error rate spike alerts (configurable threshold, e.g. "alert if >5% errors sustained for 10 min").
+- Daily/weekly fleet summaries.
+- Channels: **email** (cheap, ubiquitous), **Discord webhook** (zero-cost, where most miners hang out), Telegram and SMS later.
+- Per-device toggles so you don't get paged for benchmark runs.
+
+---
+
+## Ideas under consideration
+
+Validate before scoping into the v1.0 list. Some may belong to a later paid tier or stay free.
+
+- **Fleet-across-networks** — cloud relay so users can monitor remote sites (vacation home, friend's basement, rented colo space) without VPN setup. Big infrastructure lift; only do it if there's clear demand.
+- **API access** — read-only HTTP API key so users can pipe metrics into Grafana / Datadog / personal dashboards. Probably bundled into Pro.
+- **Custom rule engine** — user-defined alerts: "if VR temp > 75 °C AND hashrate < 1.1 TH/s for 5 min then page me." Useful but requires careful UI.
+- **Pool fee optimization** — recommend pool switches based on observed payout rates. Requires multi-pool data collection; tricky.
+- **Bench / burn-in mode** — guided multi-hour stability test that varies voltage/frequency systematically and emits a report. Adjacent to auto-tune.
+- **Per-user / per-chip baseline drift detection** — "your Gamma is hashing 4% below its 30-day average" alerts. Builds on long-term history.
+
+---
+
+## Explicitly NOT Pro (stays free)
+
+These are foundational UX or already promised publicly. Don't gate them.
+
+- All current v1.6+ features: live polling, tooltips, manual tuning, fan control, network scanner, pool config, light/dark theme, recommendation engine, mDNS publishing, CSV logging.
+- **Multi-model support** — Gamma (BM1370) is shipping; Supra (BM1368) + Ultra (BM1366) presets are promised in the changelog as a free addition.
+- **Update notification banner** (v1.7) — the awareness-layer auto-update lite. Pro gets the real auto-install on top.
+- The dashboard itself, the binary, the disclaimer, the open-source code. The app is free.
+
+---
+
+## Pricing / packaging (placeholder — needs decision)
+
+Not committed yet. Options to think through:
+
+- One-time license + N years of updates (e.g. $39 one-time, includes a year of updates and Pro features stay enabled forever)
+- Monthly subscription ($5/mo or $50/yr)
+- Per-device licensing — N devices per license, more = pay more
+- "Donate-supported with a Pro unlock code" — for the community-vibe play
+
+Independent of pricing model, license validation will live in a `/api/license/*` route group on bitaxeballer.com backed by Stripe. The desktop app calls home on launch + once a week to validate; offline grace period (~14 days) so users on bad networks don't get locked out.
