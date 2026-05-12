@@ -1,12 +1,12 @@
 # Bitaxe Baller
 
-**v1.6.1** — Live dashboard + tuner for Bitaxe miners on your local network. Native Mac app. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. Free, MIT-licensed, no telemetry.
+**v1.7.2** — Live dashboard + tuner for Bitaxe miners on your local network. Native desktop app for Mac and Windows. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. Free, MIT-licensed, no telemetry.
 
 <p align="center">
   <img src="screenshots/home.jpg" alt="Bitaxe Baller home view — compact card per device with health border colors" width="900">
 </p>
 
-[**↓ Download for Mac**](https://bitaxeballer.com/download/mac) · [bitaxeballer.com](https://bitaxeballer.com) · [Changelog](https://bitaxeballer.com/changelog.html) · [Support / FAQ](https://bitaxeballer.com/support.html)
+[**↓ Download for Mac**](https://bitaxeballer.com/download/mac) · [**↓ Download for Windows**](https://bitaxeballer.com/download/windows) · [bitaxeballer.com](https://bitaxeballer.com) · [Roadmap](https://bitaxeballer.com/roadmap.html) · [Changelog](https://bitaxeballer.com/changelog.html) · [Support / FAQ](https://bitaxeballer.com/support.html)
 
 > ## ⚠️ Disclaimer — read this before clicking anything
 >
@@ -23,9 +23,13 @@
 
 ## Two ways to run it
 
-**Option A — the standalone Mac app** (most users): download the signed + notarized `.dmg` from [bitaxeballer.com/download/mac](https://bitaxeballer.com/download/mac), drag to Applications, click. A window opens with the dashboard. No terminal, no Python, no config files. Windows installer coming soon.
+**Option A — the standalone desktop app** (most users):
+- **Mac**: download the signed + Apple-notarized `.dmg` from [bitaxeballer.com/download/mac](https://bitaxeballer.com/download/mac), drag to Applications, launch from Spotlight.
+- **Windows**: download the Inno Setup installer from [bitaxeballer.com/download/windows](https://bitaxeballer.com/download/windows), run it (per-user, no admin), launch from Start Menu. The installer isn't yet code-signed — SmartScreen will prompt on first launch; click *More info* → *Run anyway*.
 
-**Option B — from source** (developers, Linux, Windows-without-installer):
+Either way: click the icon, a window opens with the dashboard. No terminal, no Python, no config files.
+
+**Option B — from source** (developers, Linux, anyone who prefers Python):
 
 ```bash
 git clone https://github.com/465media/bitaxe-baller.git
@@ -85,7 +89,7 @@ Click **⚡ scan network** on the home toolbar to auto-discover Bitaxes on your 
 
 The app binds to `0.0.0.0` by default, so any device on your network can use the dashboard. Pick whichever URL is easiest:
 
-1. **Native window on the host** — the Mac app opens its own window; nothing to type.
+1. **Native window on the host** — the desktop app opens its own window; nothing to type.
 2. **`http://bitaxe-baller.local`** — published via mDNS (Bonjour on macOS/iOS, Avahi on Linux, native on Windows 10+). Same URL works from your phone, tablet, or laptop.
 3. **`http://<host-ip>`** — fallback if a device on the LAN doesn't resolve `.local` (some Android builds, some routers).
 
