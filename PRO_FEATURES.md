@@ -44,7 +44,8 @@ This doc is the source of truth as features get scoped, designed, or implemented
 
 Validate before scoping into the v1.0 list. Some may belong to a later paid tier or stay free.
 
-- **Fleet-across-networks** — cloud relay so users can monitor remote sites (vacation home, friend's basement, rented colo space) without VPN setup. Big infrastructure lift; only do it if there's clear demand.
+- **Fleet-across-networks** — cloud relay so users can monitor remote sites (vacation home, friend's basement, rented colo space) without VPN setup. Big infrastructure lift; only do it if there's clear demand. *(Technical prerequisite for the mobile app below — same architecture solves both.)*
+- **Mobile apps (iOS + Android)** — native or React Native dashboard for monitoring your fleet from your phone, including when you're off your home network. The hard part isn't the UI (the same JSON API the dashboard already exposes powers everything); it's getting the phone to talk to Bitaxes that live on the user's home LAN. Depends on "Fleet-across-networks" — once that cloud relay exists, the mobile app is mostly UI work. Realistic order: ship the relay first, mobile is a fast follow.
 - **API access** — read-only HTTP API key so users can pipe metrics into Grafana / Datadog / personal dashboards. Probably bundled into Pro.
 - **Custom rule engine** — user-defined alerts: "if VR temp > 75 °C AND hashrate < 1.1 TH/s for 5 min then page me." Useful but requires careful UI.
 - **Pool fee optimization** — recommend pool switches based on observed payout rates. Requires multi-pool data collection; tricky.
