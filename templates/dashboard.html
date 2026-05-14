@@ -97,10 +97,61 @@
   ⚠ <strong>USE AT YOUR OWN RISK.</strong> Overclocking can permanently damage your Bitaxe — especially the VR. The author(s) are not liable for damaged hardware, lost mining revenue, or any other consequences of using this tool. Software provided AS-IS, no warranty. See <a href="https://github.com/465media/bitaxe-baller#readme" target="_blank" rel="noopener">README</a> for the full disclaimer.
 </div>
 
+<section class="bulk-toolbar" id="bulk-toolbar" hidden
+         data-tip="Pro: apply the same tuning to all selected devices at once. Select cards with the checkbox in the top-left corner.">
+  <div class="bulk-head">
+    <span class="bulk-count"><b id="bulk-count">0</b> selected</span>
+    <button type="button" id="bulk-select-all" class="bulk-link"
+            data-tip="Select every online device on the page. Offline devices stay unselectable.">select all</button>
+    <button type="button" id="bulk-clear" class="bulk-link"
+            data-tip="Deselect everything. The toolbar collapses when no devices are selected.">clear</button>
+    <span class="bulk-pro-badge" data-tip="Bulk tuning is a Pro feature.">PRO</span>
+  </div>
+  <div class="bulk-row bulk-presets">
+    <span class="bulk-label">preset</span>
+    {% for key, p in presets.items() %}
+      <button type="button" class="bulk-preset" data-preset="{{ key }}"
+              data-tip="{{ p.frequency }} MHz / {{ p.coreVoltage }} mV — applied immediately to all selected.">{{ p.label }}</button>
+    {% endfor %}
+  </div>
+  <details class="bulk-manual">
+    <summary>manual settings…</summary>
+    <div class="bulk-manual-grid">
+      <label data-tip="Frequency in MHz. Bounds enforced server-side ({{ bounds.frequency[0] }}–{{ bounds.frequency[1] }}).">
+        <span>freq</span>
+        <input type="number" id="bulk-freq" min="{{ bounds.frequency[0] }}" max="{{ bounds.frequency[1] }}" placeholder="MHz">
+      </label>
+      <label data-tip="Core voltage in mV. Bounds {{ bounds.coreVoltage[0] }}–{{ bounds.coreVoltage[1] }}.">
+        <span>voltage</span>
+        <input type="number" id="bulk-volt" min="{{ bounds.coreVoltage[0] }}" max="{{ bounds.coreVoltage[1] }}" placeholder="mV">
+      </label>
+      <label data-tip="Fan speed percentage 0–100. Has no effect if auto-fan is enabled below.">
+        <span>fan</span>
+        <input type="number" id="bulk-fan" min="0" max="100" placeholder="%">
+      </label>
+      <label class="bulk-autofan" data-tip="Enable auto-fan control on every selected device. Overrides manual fan %.">
+        <input type="checkbox" id="bulk-autofan"> auto-fan
+      </label>
+      <button type="button" class="primary" id="bulk-apply-manual">apply manual</button>
+    </div>
+  </details>
+</section>
+
 <main id="devices"></main>
 
+<details class="alerts-section" id="alerts-section">
+  <summary data-tip="Pro: Discord webhook alerts when devices go offline or temps exceed thresholds. Click to configure.">
+    <span class="alerts-icon">🔔</span>
+    <span class="alerts-title">alerts <span class="pro-tag">PRO</span></span>
+    <span class="alerts-summary-status" id="alerts-summary-status">expand to configure</span>
+  </summary>
+  <div class="alerts-body" id="alerts-body">
+    <div class="hint">Loading…</div>
+  </div>
+</details>
+
 <footer>
-  <div>Bitaxe Baller v1.7.2 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.8.0 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -134,10 +185,13 @@ function topRecLine(d) {
 function renderCompactDevice(d) {
   const ip = d.ip;
   const href = `/device/${ip}`;
+  const selected = bulkSelection.has(ip);
+  const cb = `<span class="bulk-checkbox ${selected ? 'checked' : ''} ${isProActive ? '' : 'locked'}" data-ip="${ip}" data-tip="${isProActive ? 'Select for bulk tuning. Click again to deselect.' : 'Pro feature — click to learn more.'}" role="checkbox" aria-checked="${selected ? 'true' : 'false'}" tabindex="0"></span>`;
   if (!d.online) {
     return `
       <a class="device-link" href="${href}">
-        <div class="device compact offline" data-ip="${ip}">
+        <div class="device compact offline ${selected ? 'bulk-selected' : ''}" data-ip="${ip}">
+          ${cb}
           <div class="compact-head">
             <div class="left">
               <span class="dot"></span>
@@ -165,7 +219,8 @@ function renderCompactDevice(d) {
 
   return `
     <a class="device-link" href="${href}" data-tip="Click to open the full detail page: charts, all metrics, tuning, fan, pool config, and event log.">
-      <div class="device compact ${sevClass}" data-ip="${ip}">
+      <div class="device compact ${sevClass} ${selected ? 'bulk-selected' : ''}" data-ip="${ip}">
+        ${cb}
         <div class="compact-head">
           <div class="left">
             <span class="dot"></span>
@@ -357,6 +412,251 @@ document.getElementById('scan-btn').addEventListener('click', async () => {
   }
   finally { btn.disabled = false; btn.textContent = '⚡ scan network'; }
 });
+
+// ----- Bulk selection (Pro) -----
+// We track Pro state + the set of selected IPs in module scope so the card
+// renderer can read both without prop-drilling. Re-renders happen every poll
+// (5s), so we restore checked state from `bulkSelection` each time.
+let bulkSelection = new Set();
+let isProActive = false;
+
+async function refreshProState() {
+  try {
+    const s = await api('/api/license/status');
+    isProActive = !!s.active;
+  } catch (e) { isProActive = false; }
+  renderBulkToolbar();
+}
+
+function renderBulkToolbar() {
+  const tb = document.getElementById('bulk-toolbar');
+  if (!tb) return;
+  // Toolbar only appears when Pro is active AND at least one device is selected.
+  // Non-Pro users see the checkboxes (as "locked"), which open the modal on click.
+  if (!isProActive || bulkSelection.size === 0) { tb.hidden = true; return; }
+  tb.hidden = false;
+  document.getElementById('bulk-count').textContent = String(bulkSelection.size);
+}
+
+function clearBulkSelection() {
+  bulkSelection.clear();
+  document.querySelectorAll('.bulk-checkbox.checked').forEach(el => el.classList.remove('checked'));
+  document.querySelectorAll('.device.bulk-selected').forEach(el => el.classList.remove('bulk-selected'));
+  renderBulkToolbar();
+}
+
+function selectAllOnline() {
+  document.querySelectorAll('.device.compact:not(.offline)').forEach(card => {
+    const ip = card.getAttribute('data-ip');
+    if (!ip) return;
+    bulkSelection.add(ip);
+    card.classList.add('bulk-selected');
+    const cb = card.querySelector('.bulk-checkbox');
+    if (cb) { cb.classList.add('checked'); cb.setAttribute('aria-checked', 'true'); }
+  });
+  renderBulkToolbar();
+}
+
+function toggleBulkSelection(ip, cb) {
+  if (bulkSelection.has(ip)) bulkSelection.delete(ip);
+  else bulkSelection.add(ip);
+  const checked = bulkSelection.has(ip);
+  if (cb) { cb.classList.toggle('checked', checked); cb.setAttribute('aria-checked', checked ? 'true' : 'false'); }
+  const card = cb && cb.closest('.device');
+  if (card) card.classList.toggle('bulk-selected', checked);
+  renderBulkToolbar();
+}
+
+async function applyBulk(extras) {
+  if (bulkSelection.size === 0) return;
+  const n = bulkSelection.size;
+  if (!confirm(`Apply tuning to ${n} device${n === 1 ? '' : 's'}? Each device's benchmark session will reset.`)) return;
+  const body = { ips: Array.from(bulkSelection), ...extras };
+  try {
+    const res = await api('/api/devices/bulk_tune', 'POST', body);
+    if (res.succeeded > 0) toast(`Applied to ${res.succeeded} of ${res.results.length} device${res.results.length === 1 ? '' : 's'}`, 'info');
+    res.results.filter(r => !r.ok).forEach(r => toast(`${r.ip}: ${r.error}`, 'error', 6000));
+    setTimeout(poll, 500);
+  } catch (e) {
+    if (e.message && /pro/i.test(e.message)) {
+      toast('Bulk tuning requires Pro', 'error');
+      if (typeof openProModal === 'function') openProModal();
+    } else {
+      toast('Bulk apply failed: ' + e.message, 'error');
+    }
+  }
+}
+
+// Event delegation — works on cards rendered after this script runs.
+document.addEventListener('click', (e) => {
+  const cb = e.target.closest && e.target.closest('.bulk-checkbox');
+  if (!cb) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (!isProActive) {
+    if (typeof openProModal === 'function') openProModal();
+    return;
+  }
+  const ip = cb.getAttribute('data-ip');
+  if (ip) toggleBulkSelection(ip, cb);
+});
+
+// Toolbar wiring (elements exist server-side, so we can bind on DOMContentLoaded).
+window.addEventListener('DOMContentLoaded', () => {
+  refreshProState();
+  document.getElementById('bulk-clear')?.addEventListener('click', clearBulkSelection);
+  document.getElementById('bulk-select-all')?.addEventListener('click', selectAllOnline);
+  document.querySelectorAll('.bulk-preset').forEach(btn => {
+    btn.addEventListener('click', () => applyBulk({ preset: btn.getAttribute('data-preset') }));
+  });
+  document.getElementById('bulk-apply-manual')?.addEventListener('click', () => {
+    const body = {};
+    const f = parseInt(document.getElementById('bulk-freq').value, 10);
+    const v = parseInt(document.getElementById('bulk-volt').value, 10);
+    const fan = parseInt(document.getElementById('bulk-fan').value, 10);
+    const auto = document.getElementById('bulk-autofan').checked;
+    if (Number.isFinite(f)) body.frequency = f;
+    if (Number.isFinite(v)) body.coreVoltage = v;
+    if (Number.isFinite(fan)) body.fanspeed = fan;
+    if (auto) body.autofanspeed = 1;
+    if (Object.keys(body).length === 0) { toast('Enter at least one setting', 'error'); return; }
+    applyBulk(body);
+  });
+});
+
+// ----- Alerts config (Pro) -----
+// Loads /api/alerts/config the first time the section is expanded, renders
+// the form (teaser for free users, full editor for Pro). Cooldown defaults
+// to 30 min server-side; we expose all three rule thresholds inline.
+let alertsConfigLoaded = false;
+
+async function initAlertsSection() {
+  const section = document.getElementById('alerts-section');
+  if (!section) return;
+  section.addEventListener('toggle', async () => {
+    if (section.open && !alertsConfigLoaded) {
+      await loadAlertsConfig();
+      alertsConfigLoaded = true;
+    }
+  });
+}
+
+async function loadAlertsConfig() {
+  const body = document.getElementById('alerts-body');
+  if (!body) return;
+  body.innerHTML = '<div class="hint">Loading…</div>';
+  let cfg;
+  try {
+    cfg = await api('/api/alerts/config');
+  } catch (e) {
+    body.innerHTML = `<div class="hint" style="color: var(--crit)">Failed to load: ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  document.getElementById('alerts-summary-status').textContent = cfg.pro_active
+    ? (cfg.enabled ? 'enabled' : 'disabled')
+    : 'requires Pro';
+
+  if (!cfg.pro_active) {
+    body.innerHTML = `
+      <div class="pro-teaser" style="margin: 0">
+        <p>Get pinged on Discord when a device goes offline or temps cross thresholds. Free tier shows everything in the UI; Pro pushes critical events to your channel so you don't need to watch the dashboard.</p>
+        <button type="button" class="primary" onclick="openProModal()">Activate Pro →</button>
+      </div>
+    `;
+    return;
+  }
+
+  const rules = cfg.rules || {};
+  const channels = cfg.channels || {};
+  const masked = channels.discord_webhook_masked || '';
+  body.innerHTML = `
+    <form id="alerts-form" class="alerts-form" autocomplete="off">
+      <label class="alerts-toggle" data-tip="Master switch. Disable to temporarily pause all alerts without losing the configuration.">
+        <input type="checkbox" id="alerts-enabled" ${cfg.enabled ? 'checked' : ''}>
+        <span>alerts enabled</span>
+      </label>
+
+      <div class="alerts-row">
+        <span class="alerts-label">channel</span>
+        <input type="text" id="alerts-webhook" placeholder="${masked ? 'webhook saved: ' + escapeHtml(masked) + ' — paste a new URL to replace' : 'https://discord.com/api/webhooks/...'}" data-tip="Paste the full Discord webhook URL. Get one from Discord server settings → Integrations → Webhooks → New Webhook. Leave blank to disable Discord alerts.">
+        <button type="button" id="alerts-test" data-tip="Send a test message to verify the webhook works.">test</button>
+      </div>
+
+      <div class="alerts-row">
+        <span class="alerts-label">rules</span>
+        <label data-tip="Send an alert if a device fails to respond for this many minutes."><span>offline ≥</span><input type="number" id="alerts-offline" min="1" max="120" value="${rules.offline_minutes ?? 5}"> min</label>
+        <label data-tip="Send an alert when VR temperature crosses this threshold. 65°C is the standard danger line."><span>VR temp ≥</span><input type="number" id="alerts-vr" min="40" max="100" value="${rules.vr_temp_c ?? 65}"> °C</label>
+        <label data-tip="Send an alert when ASIC temperature crosses this threshold."><span>ASIC temp ≥</span><input type="number" id="alerts-asic" min="40" max="100" value="${rules.asic_temp_c ?? 65}"> °C</label>
+      </div>
+
+      <div class="alerts-row">
+        <span class="alerts-label">cooldown</span>
+        <label data-tip="Minimum minutes between repeat alerts for the same device + trigger. Prevents spam if a device flaps offline/online or temperature wobbles around a threshold."><input type="number" id="alerts-cooldown" min="1" max="1440" value="${cfg.cooldown_minutes ?? 30}"> min</label>
+      </div>
+
+      <div class="alerts-row">
+        <button type="submit" class="primary">save config</button>
+        <span class="alerts-saved-msg" id="alerts-saved-msg"></span>
+      </div>
+    </form>
+  `;
+
+  document.getElementById('alerts-form').addEventListener('submit', saveAlertsConfig);
+  document.getElementById('alerts-test').addEventListener('click', testAlertsWebhook);
+}
+
+async function saveAlertsConfig(ev) {
+  ev.preventDefault();
+  const webhookField = document.getElementById('alerts-webhook').value.trim();
+  const payload = {
+    enabled: document.getElementById('alerts-enabled').checked,
+    cooldown_minutes: parseInt(document.getElementById('alerts-cooldown').value, 10) || 30,
+    rules: {
+      offline_minutes: parseInt(document.getElementById('alerts-offline').value, 10) || 5,
+      vr_temp_c: parseInt(document.getElementById('alerts-vr').value, 10) || 65,
+      asic_temp_c: parseInt(document.getElementById('alerts-asic').value, 10) || 65,
+    },
+  };
+  if (webhookField) payload.channels = { discord_webhook: webhookField };
+  const msg = document.getElementById('alerts-saved-msg');
+  msg.textContent = 'saving…';
+  msg.style.color = '';
+  try {
+    await api('/api/alerts/config', 'POST', payload);
+    msg.textContent = '✓ saved';
+    msg.style.color = 'var(--accent)';
+    alertsConfigLoaded = false; // force a re-fetch so the masked webhook updates
+    setTimeout(() => loadAlertsConfig().then(() => alertsConfigLoaded = true), 600);
+  } catch (e) {
+    msg.textContent = e.message || 'save failed';
+    msg.style.color = 'var(--crit)';
+  }
+}
+
+async function testAlertsWebhook() {
+  const btn = document.getElementById('alerts-test');
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'sending…';
+  // If the user typed a new webhook but hasn't saved yet, that won't be sent —
+  // remind them to save first.
+  const typed = document.getElementById('alerts-webhook').value.trim();
+  if (typed) {
+    toast('Save your webhook first, then test.', 'warn', 4000);
+    btn.disabled = false; btn.textContent = original;
+    return;
+  }
+  try {
+    const res = await api('/api/alerts/test', 'POST', {});
+    if (res.ok) toast('Test alert delivered to Discord ✓', 'info');
+    else toast('Test failed: ' + (res.message || 'unknown'), 'error', 6000);
+  } catch (e) {
+    toast('Test failed: ' + e.message, 'error', 6000);
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
+}
+
+window.addEventListener('DOMContentLoaded', initAlertsSection);
 
 async function poll() {
   try {

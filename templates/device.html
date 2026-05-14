@@ -54,8 +54,39 @@
   <div class="empty"><div class="big">loading…</div></div>
 </main>
 
+<section class="detail-section pro-section" id="pro-history-section" hidden>
+  <h2>long-term history <span class="pro-tag" data-tip="Pro feature — answers questions the 1h rolling window can't, like 'has my Gamma's efficiency drifted over the last 30 days?'">PRO</span></h2>
+
+  <div class="pro-teaser" id="pro-history-locked" hidden>
+    <p>Pro unlocks weeks or months of historical metrics — efficiency drift, hashrate trends, HW errors over time. The free tier keeps a rolling 1h window in memory plus daily CSV logs.</p>
+    <button type="button" class="primary" onclick="openProModal()" data-tip="Open the Pro activation modal.">Activate Pro →</button>
+  </div>
+
+  <div id="pro-history-content" hidden>
+    <div class="history-controls" data-tip="Switch the time window. Longer windows aggregate to keep the chart legible — 24h → 5-min buckets, 7d → hourly, 30d → 6h, 90d → daily.">
+      <button type="button" class="range-btn active" data-range="24h">24h</button>
+      <button type="button" class="range-btn" data-range="7d">7d</button>
+      <button type="button" class="range-btn" data-range="30d">30d</button>
+      <button type="button" class="range-btn" data-range="90d">90d</button>
+      <span class="history-meta" id="history-meta"></span>
+    </div>
+    <div class="chart-wrap" data-tip="Average hashrate within each time bucket. Useful for spotting long-term degradation (silicon aging) or improvements after tuning changes.">
+      <div class="chart-label"><span>hashrate · long-term</span></div>
+      <canvas class="chart-history-h"></canvas>
+    </div>
+    <div class="chart-wrap" data-tip="Asic and VR temperatures over the selected window. Sustained VR creep is the most reliable early-warning of board degradation.">
+      <div class="chart-label"><span>temps · long-term</span><span class="legend"><span class="a">asic</span><span class="v">vr</span></span></div>
+      <canvas class="chart-history-t"></canvas>
+    </div>
+    <div class="chart-wrap" data-tip="Joules per terahash over time. Trending up = efficiency is degrading, which can mean dust buildup, ambient temperature creep, or settings that need attention.">
+      <div class="chart-label"><span>efficiency · J/TH</span></div>
+      <canvas class="chart-history-e"></canvas>
+    </div>
+  </div>
+</section>
+
 <footer>
-  <div>Bitaxe Baller v1.7.2 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.8.0 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -249,6 +280,99 @@ function eventLog(d) {
   }</div>`;
 }
 
+// Auto-tune panel — renders different states (idle / running / complete / aborted)
+// from the d.autotune block that the server includes in every device summary.
+function autotunePanel(d) {
+  // We render the locked teaser server-side via the page DOM (#autotune-section),
+  // so the panel here only deals with the unlocked states.
+  const a = d.autotune || { status: 'idle' };
+  const m = d.metrics || {};
+
+  if (a.status === 'idle') {
+    const minFreq = m.frequency || 525;
+    return `
+      <div class="autotune-idle" data-tip="Frequency-only sweep — bumps +25 MHz every 90s until HW errors climb or temps hit 65°C. Worst case ~12 min. Voltage is NEVER changed during a sweep.">
+        <p class="hint" style="margin-bottom: 10px">
+          Probe this chip's stable frequency ceiling. Starts at <b>${minFreq} MHz</b>, steps +25 MHz every ${90}s.
+          Aborts immediately on temps ≥ 65°C or HW errors ≥ 5%.
+        </p>
+        <div class="autotune-controls">
+          <label data-tip="Don't go above this frequency. Default = top of the safety range (700 MHz).">
+            max freq <input type="number" id="autotune-max" min="${minFreq + 25}" max="700" step="25" value="${Math.min(700, minFreq + 100)}">
+          </label>
+          <button type="button" class="primary" onclick="autotuneStart()" data-tip="Start the sweep. You can stop it anytime — the baseline is restored on abort.">▶ start auto-tune</button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (a.status === 'running') {
+    const stepsTotal = a.max_steps || 8;
+    const lo = a.last_observed || {};
+    const nextIn = a.next_step_at ? Math.max(0, Math.round(a.next_step_at - Date.now() / 1000)) : 0;
+    return `
+      <div class="autotune-running">
+        <div class="autotune-status-row">
+          <span class="autotune-pill running">● running</span>
+          <span>step <b>${a.step}</b> of ${stepsTotal}</span>
+          <span>current <b>${a.current_freq} MHz</b></span>
+          <span>baseline ${a.baseline?.frequency} MHz</span>
+          <span>next eval in <b>${nextIn}s</b></span>
+        </div>
+        ${lo.freq_mhz ? `<div class="autotune-observed">last observed @ ${lo.freq_mhz} MHz: HW ${lo.hw_pct}% (${lo.samples} shares), ASIC ${lo.asic_temp}°C / VR ${lo.vr_temp}°C</div>` : ''}
+        ${autotuneEventLog(a.events)}
+        <div class="autotune-controls" style="margin-top: 12px">
+          <button type="button" class="danger" onclick="autotuneStop()" data-tip="Stop the sweep and restore the baseline frequency.">stop & restore baseline</button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (a.status === 'complete') {
+    const best = a.best_stable || {};
+    const delta = best.delta_from_baseline_mhz ?? 0;
+    return `
+      <div class="autotune-complete">
+        <div class="autotune-status-row">
+          <span class="autotune-pill complete">✓ complete</span>
+          <span>best stable <b>${best.frequency} MHz</b></span>
+          <span class="${delta >= 0 ? 'pos' : 'neg'}">${delta >= 0 ? '+' : ''}${delta} MHz vs baseline</span>
+        </div>
+        <p class="hint" style="margin-top: 8px">Applied. Run again anytime to re-baseline (e.g. after temp changes seasonally).</p>
+        ${autotuneEventLog(a.events)}
+        <div class="autotune-controls" style="margin-top: 12px">
+          <button type="button" onclick="autotuneStart()">run again</button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (a.status === 'aborted') {
+    return `
+      <div class="autotune-aborted">
+        <div class="autotune-status-row">
+          <span class="autotune-pill aborted">⚠ aborted</span>
+          <span>${escapeHtml(a.abort_reason || 'unknown reason')}</span>
+        </div>
+        <p class="hint" style="margin-top: 8px">Baseline frequency was restored. Address the cause (cooling, ambient temp) and try again.</p>
+        ${autotuneEventLog(a.events)}
+        <div class="autotune-controls" style="margin-top: 12px">
+          <button type="button" onclick="autotuneStart()">try again</button>
+        </div>
+      </div>
+    `;
+  }
+
+  return '';
+}
+
+function autotuneEventLog(events) {
+  if (!events || !events.length) return '';
+  return `<div class="autotune-events">${
+    events.slice(-6).reverse().map(e => `<div class="ev"><span class="ts">${fmtTime(e.t)}</span>${escapeHtml(e.msg)}</div>`).join('')
+  }</div>`;
+}
+
 function renderDetail(d) {
   if (!d || !d.online) {
     return `
@@ -324,7 +448,7 @@ function renderDetail(d) {
 
       <div class="row" data-tip="Percentage of submitted work the pool rejected as invalid. Under 0.1% is great, 0.1–0.5% is OK, above 0.5% means the chip is unstable at the current settings — back off voltage or frequency."><span class="k">hw error rate</span><span class="v ${hwErrClass(hw.ratePct)}">${hw.ratePct}% (${hw.hwErrors}/${hw.shares + hw.hwErrors})</span></div>
       <div class="row" data-tip="Current target difficulty the pool is asking for. The pool auto-adjusts this based on your hashrate so you submit shares at a sensible cadence (~every few seconds)."><span class="k">pool difficulty</span><span class="v">${formatDiff(m.poolDifficulty)} · lifetime ${formatNum(sh.lifetimeAccepted)} accepted</span></div>
-      <div class="row" data-tip="Theoretical hashrate at this frequency (frequency × 2.28 GH/s for the BM1370) and how close real performance is. Below 85% suggests the chip is throttling on errors or this particular silicon is on the lower end of the lottery."><span class="k">expected</span><span class="v">${e.expectedGhs} GH/s · actual ${e.actualPctOfExpected}%</span></div>
+      <div class="row" data-tip="Expected hashrate at this frequency, taken directly from the firmware's reported value (smallCoreCount × frequency / 1000). Matches AxeOS exactly. Below 85% suggests the chip is throttling on errors or this particular silicon is on the lower end of the lottery."><span class="k">expected</span><span class="v">${e.expectedGhs} GH/s · actual ${e.actualPctOfExpected}%</span></div>
       <div class="row" data-tip="Current fan RPM and duty cycle. 'auto' means firmware controls it based on temperature."><span class="k">fan</span><span class="v">${m.fanSpeed} RPM · ${m.fanPercent}%${m.autofanspeed ? ' · auto' : ''}</span></div>
 
       <div class="chart-wrap" style="margin-top: 14px">
@@ -340,6 +464,15 @@ function renderDetail(d) {
     <div class="detail-section">
       <h2>tune & control</h2>
       ${tunePanel(d)}
+    </div>
+
+    <div class="detail-section pro-section" id="autotune-section">
+      <h2>auto-tune sweep <span class="pro-tag" data-tip="Pro feature — automated frequency probe with safety guardrails.">PRO</span></h2>
+      <div class="pro-teaser" id="autotune-locked" hidden>
+        <p>Pro probes each chip's stable frequency ceiling for you. Bumps +25 MHz every 90s, watches HW error rate + temps, backs off automatically, and applies the highest stable setting it found. Frequency-only — voltage is never touched.</p>
+        <button type="button" class="primary" onclick="openProModal()">Activate Pro →</button>
+      </div>
+      <div id="autotune-content">${autotunePanel(d)}</div>
     </div>
 
     <div class="detail-section">
@@ -480,6 +613,82 @@ window.renameDevice = async () => {
   } catch (e) { toast('Rename failed: ' + e.message, 'error'); }
 };
 
+// ----- Long-term history (Pro) -----
+// Lives in a static section outside #detail-root so it survives the 5s renders.
+// Pro state is checked once on load; chart data refreshes only when the user
+// clicks a range button or once a minute in the background. Avoids hammering
+// the SQLite-bucketing query every 5s.
+let historyRange = '24h';
+let proHistoryActive = false;
+
+async function initHistorySection() {
+  const section = document.getElementById('pro-history-section');
+  const locked = document.getElementById('pro-history-locked');
+  const content = document.getElementById('pro-history-content');
+  if (!section) return;
+  section.hidden = false;
+  let proActive = false;
+  try {
+    const s = await api('/api/license/status');
+    proActive = !!s.active;
+  } catch (e) {}
+  proHistoryActive = proActive;
+  if (proActive) {
+    locked.hidden = true;
+    content.hidden = false;
+    await loadHistory();
+  } else {
+    locked.hidden = false;
+    content.hidden = true;
+  }
+}
+
+async function loadHistory() {
+  if (!proHistoryActive) return;
+  const meta = document.getElementById('history-meta');
+  if (meta) meta.textContent = 'loading…';
+  let res;
+  try {
+    res = await api(`/api/device/${encodeURIComponent(DEVICE_IP)}/history?range=${historyRange}`);
+  } catch (e) {
+    if (meta) meta.textContent = e.message || 'failed to load';
+    return;
+  }
+  const pts = res.points || [];
+  if (meta) {
+    meta.textContent = pts.length
+      ? `${pts.length} points · ${Math.round((res.bucket_s || 0) / 60)}-min buckets`
+      : 'No data yet — Pro history just started recording. Check back in a few minutes.';
+  }
+
+  const ch = document.querySelector('canvas.chart-history-h');
+  const ct = document.querySelector('canvas.chart-history-t');
+  const ce = document.querySelector('canvas.chart-history-e');
+  if (pts.length < 2) return;
+
+  // Adapt the API shape to what drawChart/drawTempChart expect.
+  if (ch) drawChart(ch, pts.map(p => ({ h: p.hashRate })), 'h', '#00ff9c');
+  if (ct) drawTempChart(ct, pts.map(p => ({ asic: p.temp, vr: p.vrTemp })));
+  if (ce) {
+    const effPts = pts.map(p => ({
+      e: p.hashRate > 0 ? p.power / (p.hashRate / 1000) : 0,
+    }));
+    drawChart(ce, effPts, 'e', '#ffb000');
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('.range-btn');
+  if (!btn) return;
+  historyRange = btn.getAttribute('data-range') || '24h';
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.toggle('active', b === btn));
+  loadHistory();
+});
+
+// Slow background refresh — once a minute is enough for a chart whose smallest
+// bucket is 30 seconds. Cheap SELECT against an indexed SQLite table.
+setInterval(() => { if (proHistoryActive) loadHistory(); }, 60_000);
+
 async function poll() {
   try {
     const d = await api(`/api/device/${encodeURIComponent(DEVICE_IP)}`);
@@ -498,8 +707,59 @@ async function poll() {
   }
 }
 
+// ----- Auto-tune (Pro) -----
+// Idle/running/complete/aborted UI lives in the renderDetail output — refreshed
+// every 5s by the regular poll. We just supply the start/stop button handlers
+// here and gate visibility based on Pro status (locked teaser shown to free users).
+window.autotuneStart = async function() {
+  const maxFreqInput = document.getElementById('autotune-max');
+  const max_freq = parseInt(maxFreqInput?.value, 10);
+  const body = { ip: DEVICE_IP };
+  if (Number.isFinite(max_freq)) body.max_freq = max_freq;
+  if (!confirm(`Start auto-tune on this device? It will bump frequency every 90s until errors climb. The current frequency is captured as a baseline and restored if anything goes wrong.`)) return;
+  try {
+    await api('/api/devices/autotune/start', 'POST', body);
+    toast('Auto-tune started — first eval in 90 seconds', 'info');
+    poll();
+  } catch (e) {
+    if (e.message && /pro/i.test(e.message)) {
+      toast('Auto-tune requires Pro', 'error');
+      openProModal();
+    } else {
+      toast('Failed to start: ' + e.message, 'error');
+    }
+  }
+};
+
+window.autotuneStop = async function() {
+  if (!confirm('Stop the sweep and restore the baseline frequency?')) return;
+  try {
+    await api('/api/devices/autotune/stop', 'POST', { ip: DEVICE_IP });
+    toast('Auto-tune stopped — baseline restored', 'info');
+    poll();
+  } catch (e) {
+    toast('Failed to stop: ' + e.message, 'error');
+  }
+};
+
+async function gateAutotuneSection() {
+  const locked = document.getElementById('autotune-locked');
+  const content = document.getElementById('autotune-content');
+  if (!locked || !content) return;
+  let proActive = false;
+  try {
+    const s = await api('/api/license/status');
+    proActive = !!s.active;
+  } catch (e) {}
+  locked.hidden = proActive;
+  content.hidden = !proActive;
+}
+
 poll();
 setInterval(poll, 5000);
+initHistorySection();
+// Run after first poll has hydrated the DOM with the section.
+setTimeout(gateAutotuneSection, 200);
 </script>
 </body>
 </html>

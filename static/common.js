@@ -275,6 +275,181 @@ function drawChart(canvas, history, key, color) {
 })();
 
 
+// ----- Pro / license -----
+// Injects a "Pro" button into the header on both pages, plus a modal for
+// activating, viewing, or deactivating the license. Polls /api/license/status
+// on open. The button shows ✓ Pro when active, otherwise "Pro" with an outline
+// (subtle nudge, not nag).
+const PRO_BUY_URL = 'https://bitaxeballer.com/pro';
+
+function _proIconHtml() {
+  return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="currentColor"><path d="M12 2l2.39 6.95H22l-6 4.36L18.18 22 12 17.77 5.82 22 8 13.31l-6-4.36h7.61z"/></svg>';
+}
+
+function _injectProButton() {
+  const meta = document.querySelector('header .meta');
+  if (!meta || document.getElementById('pro-toggle')) return;
+  const btn = document.createElement('button');
+  btn.id = 'pro-toggle';
+  btn.className = 'pro-toggle';
+  btn.type = 'button';
+  btn.setAttribute('data-tip',
+    'Bitaxe Baller Pro — unlock bulk tuning, auto-tune sweeps, alerts, and long-term history. Click to activate a license or manage your activation.');
+  btn.innerHTML = `${_proIconHtml()}<span class="lbl">Pro</span>`;
+  // Insert before the theme toggle so it groups with header actions.
+  const theme = document.getElementById('theme-toggle');
+  if (theme) meta.insertBefore(btn, theme);
+  else meta.appendChild(btn);
+  btn.addEventListener('click', openProModal);
+}
+
+function _injectProModal() {
+  if (document.getElementById('pro-modal')) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'pro-modal';
+  wrap.className = 'pro-modal';
+  wrap.hidden = true;
+  wrap.innerHTML = `
+    <div class="pro-modal-backdrop"></div>
+    <div class="pro-modal-panel" role="dialog" aria-modal="true" aria-labelledby="pro-modal-title">
+      <button class="pro-modal-close" aria-label="Close">×</button>
+      <div class="pro-modal-head">
+        <span class="pro-badge">${_proIconHtml()}<span>PRO</span></span>
+        <h2 id="pro-modal-title">Bitaxe Baller Pro</h2>
+      </div>
+      <div class="pro-modal-body" id="pro-modal-body">
+        <div class="pro-loading">Loading…</div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  wrap.querySelector('.pro-modal-backdrop').addEventListener('click', closeProModal);
+  wrap.querySelector('.pro-modal-close').addEventListener('click', closeProModal);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !wrap.hidden) closeProModal();
+  });
+}
+
+async function openProModal() {
+  _injectProModal();
+  const wrap = document.getElementById('pro-modal');
+  wrap.hidden = false;
+  await _renderProModal();
+}
+
+function closeProModal() {
+  const wrap = document.getElementById('pro-modal');
+  if (wrap) wrap.hidden = true;
+}
+
+async function _renderProModal() {
+  const body = document.getElementById('pro-modal-body');
+  if (!body) return;
+  body.innerHTML = '<div class="pro-loading">Checking license…</div>';
+  let status;
+  try {
+    status = await api('/api/license/status');
+  } catch (e) {
+    body.innerHTML = `<div class="pro-error">Couldn't load license status: ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  _updateProButton(status.active);
+  if (status.active) {
+    const isDev = !!status.dev_mode;
+    body.innerHTML = `
+      <div class="pro-active">
+        <div class="pro-active-badge ${isDev ? 'dev' : ''}">${_proIconHtml()}<span>${isDev ? 'Dev override — Pro features unlocked locally' : 'Active on this machine'}</span></div>
+        ${isDev ? '<p class="pro-fineprint" style="border:0;padding:0;margin-bottom:14px">Set by <code>BITAXE_BALLER_DEV_PRO=1</code>. Unset the env var to test the real activation flow.</p>' : ''}
+        <dl class="pro-meta">
+          ${status.email ? `<dt>Account</dt><dd>${escapeHtml(status.email)}</dd>` : ''}
+          ${status.machine_label ? `<dt>Machine</dt><dd>${escapeHtml(status.machine_label)}</dd>` : ''}
+          ${status.key_suffix ? `<dt>Key</dt><dd>••••-${escapeHtml(status.key_suffix)}</dd>` : ''}
+          ${status.expires_at ? `<dt>Renews</dt><dd>${escapeHtml(new Date(status.expires_at).toLocaleDateString())}</dd>` : ''}
+        </dl>
+        ${isDev ? '' : `
+          <p class="pro-fineprint">Deactivating frees this slot so you can move your license to another machine. Your subscription stays active.</p>
+          <div class="pro-actions">
+            <button class="pro-btn-ghost" id="pro-deactivate">Deactivate this machine</button>
+          </div>
+        `}
+      </div>
+    `;
+    const deact = document.getElementById('pro-deactivate');
+    if (deact) deact.addEventListener('click', _handleDeactivate);
+  } else {
+    body.innerHTML = `
+      <p class="pro-blurb">Paste the license key you received from Polar after purchase. Free tier features keep working either way.</p>
+      <form class="pro-form" id="pro-activate-form" autocomplete="off">
+        <label for="pro-key-input">License key</label>
+        <input type="text" id="pro-key-input" placeholder="bb-xxxxxxxx-xxxxxxxx-…" spellcheck="false" autocapitalize="off" required>
+        <div class="pro-actions">
+          <button type="submit" class="primary" id="pro-activate-submit">Activate Pro</button>
+          <a href="${PRO_BUY_URL}" target="_blank" rel="noopener" class="pro-btn-ghost">Don't have one? Get Pro →</a>
+        </div>
+        <div class="pro-feedback" id="pro-feedback"></div>
+      </form>
+    `;
+    document.getElementById('pro-activate-form').addEventListener('submit', _handleActivate);
+  }
+}
+
+async function _handleActivate(ev) {
+  ev.preventDefault();
+  const input = document.getElementById('pro-key-input');
+  const btn = document.getElementById('pro-activate-submit');
+  const fb = document.getElementById('pro-feedback');
+  const key = (input.value || '').trim();
+  if (!key) return;
+  btn.disabled = true; btn.textContent = 'Activating…';
+  fb.className = 'pro-feedback'; fb.textContent = '';
+  try {
+    const res = await api('/api/license/activate', 'POST', { key });
+    toast('Pro activated — thank you!', 'info');
+    _updateProButton(true);
+    await _renderProModal();
+  } catch (e) {
+    fb.className = 'pro-feedback error';
+    fb.textContent = e.message || 'Activation failed';
+    btn.disabled = false; btn.textContent = 'Activate Pro';
+  }
+}
+
+async function _handleDeactivate() {
+  if (!confirm('Deactivate Pro on this machine? Your subscription stays active and you can re-activate here or on another machine anytime.')) return;
+  const btn = document.getElementById('pro-deactivate');
+  btn.disabled = true; btn.textContent = 'Deactivating…';
+  try {
+    const res = await api('/api/license/deactivate', 'POST', {});
+    if (res.warning) toast(res.warning, 'warn', 7000);
+    else toast('Pro deactivated on this machine', 'info');
+    _updateProButton(false);
+    await _renderProModal();
+  } catch (e) {
+    toast('Deactivate failed: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Deactivate this machine';
+  }
+}
+
+function _updateProButton(active) {
+  const btn = document.getElementById('pro-toggle');
+  if (!btn) return;
+  btn.classList.toggle('active', !!active);
+  const lbl = btn.querySelector('.lbl');
+  if (lbl) lbl.textContent = active ? 'Pro' : 'Pro';
+  btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  _injectProButton();
+  // Lazily check status on load so the button reflects state without forcing
+  // the user to open the modal. Single request, fire-and-forget.
+  api('/api/license/status').then(s => _updateProButton(s.active)).catch(() => {});
+});
+
+window.openProModal = openProModal;
+window.closeProModal = closeProModal;
+
+
 function drawTempChart(canvas, history) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;

@@ -6,6 +6,9 @@ venv/
 env/
 config.json
 logs/
+history.db
+history.db-wal
+history.db-shm
 .DS_Store
 .env
 .idea/

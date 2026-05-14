@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.7.2** — Live dashboard + tuner for Bitaxe miners on your local network. Native desktop app for Mac and Windows. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. Free, MIT-licensed, no telemetry.
+**v1.8.0** — Live dashboard + tuner for Bitaxe miners on your local network. Native desktop app for Mac and Windows. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. Free, MIT-licensed, no telemetry.
 
 <p align="center">
   <img src="screenshots/home.jpg" alt="Bitaxe Baller home view — compact card per device with health border colors" width="900">
