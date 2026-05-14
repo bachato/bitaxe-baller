@@ -74,6 +74,62 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// ----- hashrate unit toggle (GH/s ↔ TH/s) -----
+// Bitaxe firmware reports hashrate in GH/s natively. Some users prefer TH/s
+// (1 TH = 1000 GH), especially with multiple devices or when comparing against
+// pool dashboards that use TH/s. Stored per-browser in localStorage; affects
+// display only — server-side logs (CSV, SQLite) always use GH/s.
+function getHashrateUnit() {
+  try {
+    const u = localStorage.getItem('hashrateUnit');
+    return u === 'TH' ? 'TH' : 'GH';
+  } catch (e) { return 'GH'; }
+}
+function hashrateUnitLabel() {
+  return getHashrateUnit() === 'TH' ? 'TH/s' : 'GH/s';
+}
+// Format a GH/s value for display. `precisionGh` = decimals when in GH mode.
+// In TH mode we add 2 decimals so resolution stays comparable (1234.5 GH/s
+// → 1.2345 TH/s, both ≈0.1 GH precision).
+function fmtHashrate(ghs, precisionGh = 1) {
+  if (ghs == null || !isFinite(Number(ghs))) return '—';
+  const n = Number(ghs);
+  if (getHashrateUnit() === 'TH') return (n / 1000).toFixed(precisionGh + 2);
+  return n.toFixed(precisionGh);
+}
+function applyHashrateUnitUI(unit) {
+  const btn = document.getElementById('hash-unit-toggle');
+  if (!btn) return;
+  const lbl = btn.querySelector('.lbl');
+  if (lbl) lbl.textContent = unit === 'TH' ? 'TH/s' : 'GH/s';
+  btn.setAttribute('aria-pressed', unit === 'TH' ? 'true' : 'false');
+}
+function _injectHashUnitButton() {
+  const meta = document.querySelector('header .meta');
+  if (!meta || document.getElementById('hash-unit-toggle')) return;
+  const btn = document.createElement('button');
+  btn.id = 'hash-unit-toggle';
+  btn.className = 'theme-toggle';
+  btn.type = 'button';
+  btn.setAttribute('data-tip',
+    'Switch hashrate display between GH/s and TH/s (1 TH = 1000 GH). AxeOS reports natively in GH/s; pool dashboards usually use TH/s. Display only — logs always store GH/s.');
+  btn.innerHTML = '<span class="lbl">GH/s</span>';
+  const theme = document.getElementById('theme-toggle');
+  if (theme) meta.insertBefore(btn, theme);
+  else meta.appendChild(btn);
+  btn.addEventListener('click', () => {
+    const next = getHashrateUnit() === 'GH' ? 'TH' : 'GH';
+    try { localStorage.setItem('hashrateUnit', next); } catch (e) {}
+    applyHashrateUnitUI(next);
+    // Refresh page-level render immediately rather than waiting for next poll.
+    if (typeof window.poll === 'function') window.poll();
+  });
+}
+window.addEventListener('DOMContentLoaded', () => {
+  _injectHashUnitButton();
+  applyHashrateUnitUI(getHashrateUnit());
+});
+
 // ----- toast notifications -----
 function toast(msg, type = 'info', timeout = 4000) {
   const host = document.getElementById('toasts');

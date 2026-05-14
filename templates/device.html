@@ -86,7 +86,7 @@
 </section>
 
 <footer>
-  <div>Bitaxe Baller v1.8.0 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.8.1 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -422,7 +422,7 @@ function renderDetail(d) {
     <div class="detail-section">
       <h2>live metrics</h2>
       <div class="grid">
-        <div class="stat" data-tip="Live hashrate this poll (instantaneous, noisy). Trust the rolling averages below for actual performance comparison."><div class="l">hashrate</div><div class="v good">${m.hashRate.toFixed(1)}<span class="u">GH/s</span></div></div>
+        <div class="stat" data-tip="Live hashrate this poll (instantaneous, noisy). Trust the rolling averages below for actual performance comparison."><div class="l">hashrate</div><div class="v good">${fmtHashrate(m.hashRate, 1)}<span class="u">${hashrateUnitLabel()}</span></div></div>
         <div class="stat" data-tip="Currently applied ASIC clock frequency. Set in the tune section below."><div class="l">frequency</div><div class="v">${m.frequency}<span class="u">MHz</span></div></div>
         <div class="stat" data-tip="ASIC chip temperature. Green <60°C, yellow 60–65°C, red >65°C."><div class="l">asic temp</div><div class="v ${tempClass(m.temp, true)}">${m.temp}<span class="u">°C</span></div></div>
         <div class="stat" data-tip="Voltage Regulator temperature — the part that fails first on overclocked boards. Watch this more closely than ASIC temp. Green <55°C, yellow 55–65°C, red >65°C."><div class="l">vr temp</div><div class="v ${tempClass(m.vrTemp, false)}">${m.vrTemp}<span class="u">°C</span></div></div>
@@ -433,10 +433,10 @@ function renderDetail(d) {
       </div>
 
       <div class="rolling" data-tip="Rolling hashrate averages over different windows. The 15m average is the standard for comparing tuning settings — give a new setting at least 15 minutes before deciding it's better or worse.">
-        <div class="r"><div class="l">avg 1m</div><div class="v">${r['1m']}</div></div>
-        <div class="r"><div class="l">avg 5m</div><div class="v">${r['5m']}</div></div>
-        <div class="r"><div class="l">avg 15m</div><div class="v">${r['15m']}</div></div>
-        <div class="r"><div class="l">avg 1h</div><div class="v">${r['1h']}</div></div>
+        <div class="r"><div class="l">avg 1m</div><div class="v">${fmtHashrate(r['1m'], 1)}</div></div>
+        <div class="r"><div class="l">avg 5m</div><div class="v">${fmtHashrate(r['5m'], 1)}</div></div>
+        <div class="r"><div class="l">avg 15m</div><div class="v">${fmtHashrate(r['15m'], 1)}</div></div>
+        <div class="r"><div class="l">avg 1h</div><div class="v">${fmtHashrate(r['1h'], 1)}</div></div>
       </div>
 
       <div class="grid shares-grid">
@@ -448,7 +448,7 @@ function renderDetail(d) {
 
       <div class="row" data-tip="Percentage of submitted work the pool rejected as invalid. Under 0.1% is great, 0.1–0.5% is OK, above 0.5% means the chip is unstable at the current settings — back off voltage or frequency."><span class="k">hw error rate</span><span class="v ${hwErrClass(hw.ratePct)}">${hw.ratePct}% (${hw.hwErrors}/${hw.shares + hw.hwErrors})</span></div>
       <div class="row" data-tip="Current target difficulty the pool is asking for. The pool auto-adjusts this based on your hashrate so you submit shares at a sensible cadence (~every few seconds)."><span class="k">pool difficulty</span><span class="v">${formatDiff(m.poolDifficulty)} · lifetime ${formatNum(sh.lifetimeAccepted)} accepted</span></div>
-      <div class="row" data-tip="Expected hashrate at this frequency, taken directly from the firmware's reported value (smallCoreCount × frequency / 1000). Matches AxeOS exactly. Below 85% suggests the chip is throttling on errors or this particular silicon is on the lower end of the lottery."><span class="k">expected</span><span class="v">${e.expectedGhs} GH/s · actual ${e.actualPctOfExpected}%</span></div>
+      <div class="row" data-tip="Expected hashrate at this frequency, taken directly from the firmware's reported value (smallCoreCount × frequency / 1000). Matches AxeOS exactly. Below 85% suggests the chip is throttling on errors or this particular silicon is on the lower end of the lottery."><span class="k">expected</span><span class="v">${fmtHashrate(e.expectedGhs, 1)} ${hashrateUnitLabel()} · actual ${e.actualPctOfExpected}%</span></div>
       <div class="row" data-tip="Current fan RPM and duty cycle. 'auto' means firmware controls it based on temperature."><span class="k">fan</span><span class="v">${m.fanSpeed} RPM · ${m.fanPercent}%${m.autofanspeed ? ' · auto' : ''}</span></div>
 
       <div class="chart-wrap" style="margin-top: 14px">

@@ -49,8 +49,8 @@
 <section class="summary">
   <div class="cell" data-tip="Sum of the live hashrate reported by every online device. Updates every 5 seconds. Bitaxe reports instantaneous hashrate which is noisy — see each device's rolling averages for the real picture.">
     <div class="label">total hashrate</div>
-    <div class="val"><span id="sum-hashrate">—</span><span class="unit">GH/s</span></div>
-    <div class="sub"><span id="sum-th">—</span> TH/s combined</div>
+    <div class="val"><span id="sum-hashrate">—</span><span class="unit" id="sum-hashrate-unit">GH/s</span></div>
+    <div class="sub"><span id="sum-hashrate-alt">—</span> <span id="sum-hashrate-alt-unit">TH/s</span> combined</div>
   </div>
   <div class="cell" data-tip="Combined power draw of all online devices in watts. This is what the chip reports — actual wall draw is ~5–10% higher because of PSU losses.">
     <div class="label">total power</div>
@@ -151,7 +151,7 @@
 </details>
 
 <footer>
-  <div>Bitaxe Baller v1.8.0 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.8.1 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -230,8 +230,8 @@ function renderCompactDevice(d) {
           <span class="severity-pill ${sevPillClass}" data-tip="${escapeHtml(sevTip)}">${sevLabel}</span>
         </div>
         <div class="compact-hero">
-          <div class="hash-big" data-tip="Live hashrate as reported by the device this poll. Bitaxe firmware returns instantaneous hashrate which is noisy — the 15m avg below is what to trust when comparing tuning settings.">${m.hashRate.toFixed(1)}<span class="u">GH/s</span></div>
-          <div class="hash-sub" data-tip="Currently applied frequency / core voltage. Change them on the detail page.">15m avg <b>${r['15m']}</b> · ${m.frequency}MHz / ${m.coreVoltage}mV</div>
+          <div class="hash-big" data-tip="Live hashrate as reported by the device this poll. Bitaxe firmware returns instantaneous hashrate which is noisy — the 15m avg below is what to trust when comparing tuning settings.">${fmtHashrate(m.hashRate, 1)}<span class="u">${hashrateUnitLabel()}</span></div>
+          <div class="hash-sub" data-tip="Currently applied frequency / core voltage. Change them on the detail page.">15m avg <b>${fmtHashrate(r['15m'], 1)}</b> · ${m.frequency}MHz / ${m.coreVoltage}mV</div>
         </div>
         <div class="compact-stats">
           <div class="s" data-tip="ASIC chip temperature. Green <60°C, yellow 60–65°C, red >65°C. Sustained operation over 65°C accelerates silicon degradation.">
@@ -262,8 +262,15 @@ function renderSummary(devices) {
   const totalPower = online.reduce((s, d) => s + (d.metrics?.power || 0), 0);
   const avgEff = totalHash > 0 ? (totalPower / (totalHash / 1000)) : 0;
 
-  document.getElementById('sum-hashrate').textContent = totalHash.toFixed(0);
-  document.getElementById('sum-th').textContent = (totalHash / 1000).toFixed(2);
+  const inTh = getHashrateUnit() === 'TH';
+  document.getElementById('sum-hashrate').textContent = inTh
+    ? (totalHash / 1000).toFixed(2)
+    : totalHash.toFixed(0);
+  document.getElementById('sum-hashrate-unit').textContent = inTh ? 'TH/s' : 'GH/s';
+  document.getElementById('sum-hashrate-alt').textContent = inTh
+    ? totalHash.toFixed(0)
+    : (totalHash / 1000).toFixed(2);
+  document.getElementById('sum-hashrate-alt-unit').textContent = inTh ? 'GH/s' : 'TH/s';
   document.getElementById('sum-power').textContent = totalPower.toFixed(1);
   document.getElementById('sum-eff').textContent = avgEff > 0 ? avgEff.toFixed(2) : '—';
   document.getElementById('sum-online').textContent = online.length;
@@ -374,7 +381,7 @@ function showScanResults(res) {
       <div class="scan-row">
         <div class="info">
           <div class="ip">${f.ip}</div>
-          <div class="meta-line">${escapeHtml(f.hostname || '(unnamed)')} · ${escapeHtml(f.model || '?')} · fw ${escapeHtml(f.version || '?')} · ${f.hashRate} GH/s</div>
+          <div class="meta-line">${escapeHtml(f.hostname || '(unnamed)')} · ${escapeHtml(f.model || '?')} · fw ${escapeHtml(f.version || '?')} · ${fmtHashrate(f.hashRate, 0)} ${hashrateUnitLabel()}</div>
         </div>
         <button class="primary" onclick='addFromScan(${JSON.stringify(f)})'>+ add</button>
       </div>
