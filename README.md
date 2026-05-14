@@ -153,17 +153,24 @@ Columns: timestamp, ISO time, hashrate, ASIC temp, VR temp, power, voltage (meas
 
 ## Roadmap
 
+### Shipped in v1.8 (Pro tier)
+
+- ~~Bulk-apply mode: select multiple devices and push the same tuning in one shot~~ ✅
+- ~~Auto-tune sweep mode (frequency steps with HW-error guardrails)~~ ✅
+- ~~Long-term history (persistent SQLite, weeks/months of metrics)~~ ✅
+- ~~Discord alerts on offline or temperature thresholds~~ ✅
+
+### Still to ship
+
+- True in-place auto-updates (Sparkle/WinSparkle) — Pro, paired with a Windows code-signing cert
+- Email + Telegram alert channels — Pro, v1.8.x
 - `start.sh` one-liner that creates the venv, installs deps, runs the app
 - launchd plist template for run-on-boot on macOS
-- Windows signed installer (CI workflow already wired; cert pending)
 - A/B comparison mode: pin two settings snapshots side-by-side
-- Auto-tune sweep mode (frequency steps with HW-error guardrails)
 - WebSocket push instead of 5s polling (matters at >10 devices)
-- Multi-model presets for Supra (BM1368) and Ultra (BM1366)
-- Discord / email alerts on offline or HW-error spikes
-- Bulk-apply mode: select multiple devices and push the same tuning / pool config in one shot
+- Multi-model presets for Supra (BM1368) and Ultra (BM1366) — **free**, never paywalled
 
-A **Pro** tier with several of the above (alerts, bulk apply, auto-tune, long-term history) is in the works. The free version stays free, forever — [drop your email here](https://bitaxeballer.com#newsletter) to be notified when Pro ships.
+**Bitaxe Baller Pro** launched in v1.8 — bulk tuning, auto-tune sweeps, 90 days of history, Discord alerts. $29/year, 5 machines per license. Free tier stays fully featured forever. [Full breakdown at bitaxeballer.com/pro](https://bitaxeballer.com/pro.html).
 
 ## License
 

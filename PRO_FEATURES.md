@@ -1,12 +1,44 @@
 # Pro tier roadmap
 
-Running list of features destined for the paid tier. The free tier (current public builds, v1.6+) stays fully functional; Pro is additive — bulk operations, automation, alerts, persistent history.
+Running list of features destined for the paid tier. The free tier stays fully functional; Pro is additive — bulk operations, automation, alerts, persistent history.
 
 This doc is the source of truth as features get scoped, designed, or implemented. Add items as they come up. Strike them through when shipped.
 
 ---
 
-## Confirmed for v1.0 Pro launch
+## Shipped in v1.8.0 (2026-05-14)
+
+### ~~Bulk tuning across selected devices~~ ✅
+- Multi-select device cards on the home page (per-card checkbox, "select all" toolbar).
+- Apply a preset or custom freq / voltage / fan to every selected device in one click.
+- `POST /api/devices/bulk_tune` — server-side bounded, parallel fan-out via ThreadPoolExecutor, max 64 IPs.
+
+### ~~Auto-tune sweeps with HW-error guardrails~~ ✅ (v1: frequency only)
+- Frequency-only probe (voltage is **not** touched during a sweep — v1 safety scope).
+- +25 MHz per 90 s observation window, capped at 8 steps.
+- Hard abort + baseline restore at VR ≥ 65 °C, ASIC ≥ 65 °C, or HW error rate ≥ 5 %.
+- Records the highest stable frequency it found and applies it.
+- **v2 enhancement (not yet done):** voltage probing for additional headroom. Frequency-only is the conservative first pass; voltage tuning lands once we've seen freq-sweep behave in the wild.
+
+### ~~Long-term history~~ ✅
+- Persistent local SQLite (`history.db` in user data dir), 90-day retention.
+- Bucketed read endpoint with 24h / 7d / 30d / 90d ranges.
+- Chart UI added to every device detail page; Pro-gated (free users see a teaser).
+- Free tier keeps its in-memory 1h rolling window + daily CSV logs unchanged.
+
+### ~~Discord alerts~~ ✅
+- Three triggers: offline > N min, VR temp ≥ X °C, ASIC temp ≥ X °C.
+- 30-minute cooldown per (device, trigger) pair.
+- Test button on the config UI.
+- **Still to do in v1.8.x:** SMTP / email channel, Telegram channel, HW-error-rate-sustained trigger.
+
+### ~~License activation + Pro modal~~ ✅
+- Activation via Lemon Squeezy customer portal API. Five machine activations per license; deactivate to free a slot.
+- Dev override (`BITAXE_BALLER_DEV_PRO=1`) for development work.
+
+---
+
+## Still in the v1.0 Pro launch list (not yet shipped)
 
 ### Auto-updates (in-place / "Chrome-style")
 - Real Sparkle (Mac) + WinSparkle (Windows) integration. App downloads new version in the background, prompts on next launch, replaces itself, restarts.
@@ -14,29 +46,6 @@ This doc is the source of truth as features get scoped, designed, or implemented
 - **Hard dependency:** Windows code-signing certificate ($120-400/yr). Without it every auto-update fires SmartScreen, defeating the point.
 - **Hard dependency:** appcast.xml hosted on bitaxeballer.com with Ed25519 signatures on each release. Update channel = remote code execution if signatures aren't enforced.
 - Failure recovery: if the new binary crashes on launch, roll back to the previous version automatically. Don't brick paid users.
-
-### Bulk tuning across selected devices
-- Multi-select device cards on the home page (checkbox per card, "select all" toolbar).
-- Apply preset, frequency, voltage, or fan setting to every selected device in one click.
-- Most-asked-for usability win when running >2 miners. "Set my whole fleet to Balanced" without 8 separate visits.
-
-### Auto-tune sweeps with HW-error guardrails
-- Per-device automated frequency + voltage sweep that probes each chip's actual stable ceiling.
-- Backs off on HW-error spike → records last known good → resumes from a safer point.
-- Reports a personalized "Balanced+" preset based on the chip's measured headroom.
-- Free tier ships fixed presets (Stock/Mild/Balanced/Aggressive/Max). Pro tier learns the chip.
-
-### Long-term history
-- Free tier keeps a rolling 1h window in memory + daily CSVs in the user's data dir.
-- Pro tier writes to persistent local SQLite — hashrate, temps, efficiency, HW errors going back weeks/months.
-- Powers the kind of question the CSVs don't: "did my Gamma's efficiency drift down 3% over the last 60 days?"
-
-### Alerts
-- Push notifications when a device goes offline > N minutes.
-- HW-error rate spike alerts (configurable threshold, e.g. "alert if >5% errors sustained for 10 min").
-- Daily/weekly fleet summaries.
-- Channels: **email** (cheap, ubiquitous), **Discord webhook** (zero-cost, where most miners hang out), Telegram and SMS later.
-- Per-device toggles so you don't get paged for benchmark runs.
 
 ---
 
