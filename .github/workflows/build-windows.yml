@@ -41,6 +41,26 @@ jobs:
         run: |
           Get-ChildItem -Path dist -Recurse -Depth 2 | Format-Table -AutoSize
 
+      # Authenticode-sign the inner application .exe BEFORE Inno Setup packages
+      # it, so the running app (post-install) also has a valid signature — not
+      # just the installer. Skipped if Azure SP secrets aren't configured yet,
+      # which is the state until Nathan finishes the service-principal setup.
+      - name: Authenticode-sign inner .exe (Azure Trusted Signing)
+        if: secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != ''
+        uses: azure/trusted-signing-action@v0.5.9
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: https://eus.codesigning.azure.net/
+          trusted-signing-account-name: bitaxe-baller-signing
+          certificate-profile-name: bitaxe-baller-prod
+          files-folder: dist/Bitaxe Baller
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com/
+          timestamp-digest: SHA256
+
       - name: Compile Inno Setup installer
         shell: pwsh
         run: |
@@ -53,6 +73,27 @@ jobs:
           if (-not (Test-Path "dist/Bitaxe-Baller-Windows.exe")) {
             throw "Inno Setup did not produce dist/Bitaxe-Baller-Windows.exe"
           }
+
+      # Sign the outer installer .exe — what users actually download from the
+      # GitHub Release page. This is the signature SmartScreen sees when the
+      # user double-clicks the installer, and the one that determines whether
+      # they see "Verified publisher: Nathan Baldwin" or "Unknown publisher."
+      - name: Authenticode-sign installer .exe (Azure Trusted Signing)
+        if: secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != ''
+        uses: azure/trusted-signing-action@v0.5.9
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: https://eus.codesigning.azure.net/
+          trusted-signing-account-name: bitaxe-baller-signing
+          certificate-profile-name: bitaxe-baller-prod
+          files-folder: dist
+          files-folder-filter: exe
+          files-folder-recurse: false
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com/
+          timestamp-digest: SHA256
 
       # Sign the Windows artifact for the auto-update feed. This is the
       # Ed25519 signature inside appcast.xml — separate from (and not a
