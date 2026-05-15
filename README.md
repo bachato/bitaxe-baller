@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.8.0** — Live dashboard + tuner for Bitaxe miners on your local network. Native desktop app for Mac and Windows. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. Free, MIT-licensed, no telemetry.
+**v1.8.2** — Live dashboard + tuner for Bitaxe miners on your local network. Native desktop app for Mac and Windows. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. Free, MIT-licensed, no telemetry.
 
 <p align="center">
   <img src="screenshots/home.jpg" alt="Bitaxe Baller home view — compact card per device with health border colors" width="900">
@@ -25,7 +25,7 @@
 
 **Option A — the standalone desktop app** (most users):
 - **Mac**: download the signed + Apple-notarized `.dmg` from [bitaxeballer.com/download/mac](https://bitaxeballer.com/download/mac), drag to Applications, launch from Spotlight.
-- **Windows**: download the Inno Setup installer from [bitaxeballer.com/download/windows](https://bitaxeballer.com/download/windows), run it (per-user, no admin), launch from Start Menu. The installer isn't yet code-signed — SmartScreen will prompt on first launch; click *More info* → *Run anyway*.
+- **Windows**: download the Inno Setup installer from [bitaxeballer.com/download/windows](https://bitaxeballer.com/download/windows), run it (per-user, no admin), launch from Start Menu. The installer is Authenticode-signed via Azure Trusted Signing (Verified publisher: Nathan Baldwin). New installs may still see a brief SmartScreen download prompt for the first few weeks while Microsoft's reputation system catches up; clicking *More info* → *Run anyway* proceeds, no further warnings during install.
 
 Either way: click the icon, a window opens with the dashboard. No terminal, no Python, no config files.
 
@@ -162,7 +162,7 @@ Columns: timestamp, ISO time, hashrate, ASIC temp, VR temp, power, voltage (meas
 
 ### Still to ship
 
-- True in-place auto-updates (Sparkle/WinSparkle) — Pro, paired with a Windows code-signing cert
+- ~~True in-place auto-updates (Sparkle/WinSparkle) — Pro, paired with a Windows code-signing cert~~ ✅ v1.8.2 (Mac Pro auto-update + Windows Authenticode signing)
 - Email + Telegram alert channels — Pro, v1.8.x
 - `start.sh` one-liner that creates the venv, installs deps, runs the app
 - launchd plist template for run-on-boot on macOS
