@@ -88,6 +88,10 @@ async function checkForUpdates() {
     data = await r.json();
   } catch (e) { return; }
   if (!data || !data.newer_available || !data.latest) return;
+  // banner_recommended gates noisy patch releases (added v1.8.3). Pre-1.8.3
+  // backends omit the field entirely, in which case treat as true so the
+  // banner still surfaces (preserve old behavior for older installs).
+  if (data.banner_recommended === false) return;
   if (_loadDismissedVersions().includes(data.latest)) return;
 
   host.querySelector('.version').textContent = 'v' + data.latest;

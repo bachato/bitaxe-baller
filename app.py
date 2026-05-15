@@ -1494,6 +1494,22 @@ def _parse_semver(s: str) -> tuple:
         return (0, 0, 0)
 
 
+def _banner_recommended(cur: str, latest: str) -> bool:
+    """Decide whether the dashboard banner should surface this update.
+
+    Default rule: minor/major bumps (1.8.x → 1.9.0, 1.x → 2.0) banner; patch-only
+    bumps (1.8.1 → 1.8.2) stay silent. Patch releases are usually internal/cosmetic
+    and banner-blasting every one trains users to dismiss reflexively.
+
+    Users always see the new version on next launch (no notification), they can
+    also check manually via the dashboard. The banner is the "hey, look at this"
+    nudge, reserved for changes that actually warrant the interruption.
+    """
+    c = _parse_semver(cur)
+    l = _parse_semver(latest)
+    return c[:2] != l[:2]
+
+
 def _current_platform_key() -> str:
     """Maps Python's sys.platform onto the sparkle:os values we write in the appcast."""
     if sys.platform == "darwin":
@@ -1549,6 +1565,7 @@ def _fetch_latest_release() -> dict:
         "current": APP_VERSION,
         "latest": None,
         "newer_available": False,
+        "banner_recommended": False,
         "release_url": None,
         "platform_download_url": (
             "https://bitaxeballer.com/download/mac"
@@ -1580,6 +1597,7 @@ def _fetch_latest_release() -> dict:
             best = max(candidates, key=lambda it: _parse_semver(it["version"]))
             payload["latest"] = best["version"]
             payload["newer_available"] = _parse_semver(best["version"]) > _parse_semver(APP_VERSION)
+            payload["banner_recommended"] = payload["newer_available"] and _banner_recommended(APP_VERSION, best["version"])
             payload["release_url"] = best["notes_url"]
             payload["artifact_url"] = best["url"]
             payload["artifact_size"] = best["size"]
