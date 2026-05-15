@@ -54,6 +54,33 @@ jobs:
             throw "Inno Setup did not produce dist/Bitaxe-Baller-Windows.exe"
           }
 
+      # Sign the Windows artifact for the auto-update feed. This is the
+      # Ed25519 signature inside appcast.xml — separate from (and not a
+      # substitute for) Authenticode code signing, which is gated on the
+      # Azure Trusted Signing identity validation. SmartScreen warnings will
+      # remain until that lands, but auto-update once installed will work.
+      #
+      # Skips silently if UPDATE_SIGNING_KEY isn't configured yet. build-appcast.py
+      # exits non-zero in that case; we trap the failure so a missing secret
+      # doesn't break the .exe build during the rollout window.
+      - name: Generate signed appcast entry
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if (-not $env:UPDATE_SIGNING_KEY) {
+            Write-Host "UPDATE_SIGNING_KEY secret not set — skipping appcast generation."
+            exit 0
+          }
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          python build/build-appcast.py `
+            --version $version `
+            --win-exe dist/Bitaxe-Baller-Windows.exe `
+            --release-notes-url "https://github.com/465media/bitaxe-baller/releases/tag/${{ github.ref_name }}" `
+            --out dist/appcast.xml
+          Get-Content dist/appcast.xml
+
       - name: Upload as workflow artifact (always)
         uses: actions/upload-artifact@v4
         with:
@@ -65,5 +92,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/Bitaxe-Baller-Windows.exe
-          fail_on_unmatched_files: true
+          # appcast.xml only exists when the signing secret is set; the glob
+          # form tolerates its absence during the rollout window.
+          files: |
+            dist/Bitaxe-Baller-Windows.exe
+            dist/appcast.xml
+          fail_on_unmatched_files: false

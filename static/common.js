@@ -4,6 +4,10 @@
 // Polls /api/update-check, shows a dismissible banner if a newer release exists.
 // Dismissals are remembered per-version in localStorage so the same release
 // doesn't nag, but future releases still surface a fresh banner.
+//
+// Two banner modes depending on whether the running app can self-install:
+//   install_supported=true  → in-app "install & restart" button + progress
+//   install_supported=false → fall back to the legacy "download" link
 const UPDATE_DISMISS_KEY = 'updateBanner.dismissedVersions';
 
 function _loadDismissedVersions() {
@@ -20,6 +24,58 @@ function _saveDismissedVersion(version) {
   // Cap list growth — we only care about recent versions; keep last 20.
   while (arr.length > 20) arr.shift();
   try { localStorage.setItem(UPDATE_DISMISS_KEY, JSON.stringify(arr)); } catch (e) {}
+}
+
+function _fmtBytes(n) {
+  if (!n || n < 1024) return (n || 0) + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function _pollInstallProgress(host) {
+  const progressEl = host.querySelector('.progress');
+  const installBtn = host.querySelector('.install-btn');
+  const dismissBtn = host.querySelector('.dismiss');
+  installBtn.disabled = true;
+  installBtn.hidden = true;
+  dismissBtn.hidden = true;
+  progressEl.hidden = false;
+
+  const tick = async () => {
+    let s;
+    try {
+      const r = await fetch('/api/update-progress');
+      if (!r.ok) throw new Error('progress fetch failed');
+      s = await r.json();
+    } catch (e) {
+      // Probably means the app is restarting — that's the happy path.
+      progressEl.textContent = 'restarting…';
+      return;
+    }
+    switch (s.phase) {
+      case 'downloading':
+        progressEl.textContent = `downloading ${s.progress || 0}% (${_fmtBytes(s.downloaded_bytes)}/${_fmtBytes(s.total_bytes)})`;
+        break;
+      case 'verifying':
+        progressEl.textContent = 'verifying signature…';
+        break;
+      case 'installing':
+        progressEl.textContent = 'installing…';
+        break;
+      case 'relaunching':
+        progressEl.textContent = 'restarting…';
+        return;
+      case 'failed':
+        progressEl.hidden = true;
+        installBtn.hidden = false;
+        installBtn.disabled = false;
+        dismissBtn.hidden = false;
+        if (typeof toast === 'function') toast('Update failed: ' + (s.error || 'unknown error'), { variant: 'crit' });
+        return;
+    }
+    setTimeout(tick, 500);
+  };
+  tick();
 }
 
 async function checkForUpdates() {
@@ -42,8 +98,33 @@ async function checkForUpdates() {
   } else {
     notes.hidden = true;
   }
-  const get = host.querySelector('.get-btn');
-  get.href = data.platform_download_url || 'https://bitaxeballer.com/';
+
+  const installBtn = host.querySelector('.install-btn');
+  const getBtn = host.querySelector('.get-btn');
+  if (data.install_supported) {
+    installBtn.hidden = false;
+    getBtn.hidden = true;
+    installBtn.addEventListener('click', async () => {
+      installBtn.disabled = true;
+      try {
+        const r = await fetch('/api/update-install', { method: 'POST' });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          if (typeof toast === 'function') toast('Update failed: ' + (body.error || r.status), { variant: 'crit' });
+          installBtn.disabled = false;
+          return;
+        }
+        _pollInstallProgress(host);
+      } catch (e) {
+        if (typeof toast === 'function') toast('Update failed: ' + e.message, { variant: 'crit' });
+        installBtn.disabled = false;
+      }
+    });
+  } else {
+    installBtn.hidden = true;
+    getBtn.hidden = false;
+    getBtn.href = data.platform_download_url || 'https://bitaxeballer.com/';
+  }
 
   host.querySelector('.dismiss').addEventListener('click', () => {
     _saveDismissedVersion(data.latest);

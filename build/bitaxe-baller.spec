@@ -42,7 +42,11 @@ a = Analysis(
         (os.path.join(ROOT, "templates"), "templates"),
         (os.path.join(ROOT, "static"), "static"),
     ] + WEBVIEW_DATA,
-    hiddenimports=ZEROCONF_HIDDEN + WEBVIEW_HIDDEN,
+    # _cffi_backend is the native loader cffi uses; PyNaCl (used to verify the
+    # auto-update Ed25519 signature) reaches it via cffi → libsodium and
+    # PyInstaller's static analysis misses it on macOS. Without this, signature
+    # verification raises ModuleNotFoundError at runtime and the update aborts.
+    hiddenimports=ZEROCONF_HIDDEN + WEBVIEW_HIDDEN + ["_cffi_backend"],
     hookspath=[],
     runtime_hooks=[],
     excludes=[
@@ -98,10 +102,10 @@ if sys.platform == "darwin":
         name="Bitaxe Baller.app",
         icon=ICON_MAC,
         bundle_identifier="com.465-media.bitaxe-baller",
-        version="1.8.0",
+        version="1.8.2",
         info_plist={
-            "CFBundleShortVersionString": "1.8.0",
-            "CFBundleVersion": "1.8.0",
+            "CFBundleShortVersionString": "1.8.2",
+            "CFBundleVersion": "1.8.2",
             "NSHumanReadableCopyright": "© 2026 Nathan Baldwin / 465 Media. MIT-licensed source.",
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,

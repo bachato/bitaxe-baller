@@ -25,6 +25,11 @@ build/icons/bitaxe-baller.iconset/
 # Apple signing credentials. NEVER commit these.
 build/.env.signing
 
+# Ed25519 auto-update signing key. NEVER commit. Losing this permanently
+# breaks auto-updates for every already-shipped client — keep a 1Password
+# backup. Regenerate with: python build/gen-update-keypair.py
+build/.update-signing-key
+
 # Marketing folder — Cowork-generated blog drafts + the prompt spec live here.
 # Stays local; published versions go to the bitaxe-baller-site repo's blog dir.
 BitAxe Baller Marketing/

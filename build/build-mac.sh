@@ -138,9 +138,45 @@ xcrun notarytool submit "$DMG_PATH" \
 xcrun stapler staple "$DMG_PATH"
 xcrun stapler validate "$DMG_PATH"
 
+# Ed25519-sign the .dmg for the auto-update feed. Refuses if no signing key
+# has been generated yet — run `python build/gen-update-keypair.py` once
+# to bootstrap. The appcast.xml the app polls is updated in-place under
+# dist/ so we accumulate entries across mac + windows builds.
+if [[ -f build/.update-signing-key || -n "${UPDATE_SIGNING_KEY:-}" ]]; then
+  echo "==> generating auto-update appcast entry"
+  APP_VERSION=$(/usr/bin/python3 -c "import re,sys; m=re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"', open('app.py').read()); print(m.group(1))")
+  RELEASE_NOTES_URL="https://github.com/465media/bitaxe-baller/releases/tag/v${APP_VERSION}"
+  python build/build-appcast.py \
+    --version "$APP_VERSION" \
+    --mac-dmg "$DMG_PATH" \
+    --release-notes-url "$RELEASE_NOTES_URL" \
+    --out dist/appcast.xml
+  echo "==> appcast at dist/appcast.xml — upload to https://bitaxeballer.com/appcast.xml after release"
+else
+  echo
+  echo "[!] No auto-update signing key found at build/.update-signing-key."
+  echo "    Skipping appcast generation. Run:"
+  echo "      python build/gen-update-keypair.py"
+  echo "    once, back up the private key to 1Password, paste the public key into app.py,"
+  echo "    then rerun this build."
+  echo
+fi
+
 echo
 echo "✓ Done. Outputs:"
 echo "    $APP_PATH"
 echo "    $DMG_PATH ($(du -sh "$DMG_PATH" | cut -f1))"
+if [[ -f dist/appcast.xml ]]; then
+  echo "    dist/appcast.xml"
+fi
 echo
-echo "Next: gh release create vX.Y --title \"Bitaxe Baller vX.Y\" $DMG_PATH"
+if [[ -f dist/appcast.xml ]]; then
+  echo "Release flow (the appcast.xml is what enables auto-update for shipped clients):"
+  echo "  gh release create vX.Y.Z --title \"Bitaxe Baller vX.Y.Z\" \\"
+  echo "      \"$DMG_PATH\" dist/appcast.xml"
+  echo
+  echo "Or if the release already exists (e.g. Windows CI created it on tag push):"
+  echo "  gh release upload vX.Y.Z \"$DMG_PATH\" dist/appcast.xml --clobber"
+else
+  echo "Next: gh release create vX.Y.Z --title \"Bitaxe Baller vX.Y.Z\" $DMG_PATH"
+fi

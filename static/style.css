@@ -768,6 +768,26 @@
     letter-spacing: 0.06em;
   }
   .update-banner .get-btn:hover { box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); }
+  .update-banner .install-btn {
+    background: var(--bg);
+    color: var(--accent);
+    padding: 5px 14px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: lowercase;
+  }
+  .update-banner .install-btn:hover:not(:disabled) { box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); }
+  .update-banner .install-btn:disabled { opacity: 0.6; cursor: progress; }
+  .update-banner .progress {
+    font-variant-numeric: tabular-nums;
+    color: var(--bg);
+    opacity: 0.9;
+  }
   .update-banner .dismiss {
     background: none; border: none;
     color: var(--bg);
