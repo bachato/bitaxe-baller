@@ -41,12 +41,29 @@ jobs:
         run: |
           Get-ChildItem -Path dist -Recurse -Depth 2 | Format-Table -AutoSize
 
+      # GH Actions doesn't allow `secrets` references inside step-level `if:`
+      # expressions (they're redacted before evaluation). Pattern: expose the
+      # presence-check through a job step's output, conditionalize on that.
+      - name: Check Azure SP credentials
+        id: azure_check
+        shell: bash
+        env:
+          T: ${{ secrets.AZURE_TENANT_ID }}
+          C: ${{ secrets.AZURE_CLIENT_ID }}
+          S: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          if [ -n "$T" ] && [ -n "$C" ] && [ -n "$S" ]; then
+            echo "has_azure=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_azure=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Authenticode-sign the inner application .exe BEFORE Inno Setup packages
       # it, so the running app (post-install) also has a valid signature — not
       # just the installer. Skipped if Azure SP secrets aren't configured yet,
       # which is the state until Nathan finishes the service-principal setup.
       - name: Authenticode-sign inner .exe (Azure Trusted Signing)
-        if: secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != ''
+        if: steps.azure_check.outputs.has_azure == 'true'
         uses: azure/trusted-signing-action@v0.5.9
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -79,7 +96,7 @@ jobs:
       # user double-clicks the installer, and the one that determines whether
       # they see "Verified publisher: Nathan Baldwin" or "Unknown publisher."
       - name: Authenticode-sign installer .exe (Azure Trusted Signing)
-        if: secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != ''
+        if: steps.azure_check.outputs.has_azure == 'true'
         uses: azure/trusted-signing-action@v0.5.9
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
