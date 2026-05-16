@@ -58,6 +58,7 @@ Validate before scoping into the v1.0 list. Some may belong to a later paid tier
 - **API access** — read-only HTTP API key so users can pipe metrics into Grafana / Datadog / personal dashboards. Probably bundled into Pro.
 - **Custom rule engine** — user-defined alerts: "if VR temp > 75 °C AND hashrate < 1.1 TH/s for 5 min then page me." Useful but requires careful UI.
 - **Pool fee optimization** — recommend pool switches based on observed payout rates. Requires multi-pool data collection; tricky.
+- **Pool profiles + scheduler** — *(Facebook user request, 2026-05-16.)* Save named pool configs ("BTC — Ocean", "BCH — CKPool", etc.) and switch between them either with a one-click toggle or on a time-based schedule (e.g. 15 h/day BTC, 9 h/day BCH). Bitaxe already supports primary + fallback, so the device-side plumbing exists — this is profile storage, a background scheduler thread, and UI. Open questions: day-of-week schedules vs. flat daily, timezone handling, retry behavior when a device is offline at switch time, and whether the manual toggle / profile save is free-tier (low effort, high goodwill) with only the scheduler gated to Pro. ~1–2 days end-to-end once scoped. Natural first concrete Pro hook beyond auto-update once the LS gate goes live.
 - **Bench / burn-in mode** — guided multi-hour stability test that varies voltage/frequency systematically and emits a report. Adjacent to auto-tune.
 - **Per-user / per-chip baseline drift detection** — "your Gamma is hashing 4% below its 30-day average" alerts. Builds on long-term history.
 
