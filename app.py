@@ -26,7 +26,7 @@ from flask import Flask, jsonify, render_template, request
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.8.2"
+APP_VERSION = "1.8.3"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -93,16 +93,19 @@ DEFAULT_POLL = 5
 HISTORY_POINTS = 720  # 1 hour at 5s
 ROLLING_WINDOWS = {"1m": 12, "5m": 60, "15m": 180, "1h": 720}
 
-# ----- Lemon Squeezy (Pro license) -----
-# LS exposes a "license" API where the license key itself is the credential —
-# no API token or store ID needed in the desktop binary. Endpoints:
-#   POST /v1/licenses/activate    — consume 1 of 5 activations, returns instance_id
-#   POST /v1/licenses/validate    — verify key + instance still good
-#   POST /v1/licenses/deactivate  — free the activation slot
+# ----- Pro license server -----
+# Self-hosted license server at bitaxeballer.com/api/license — same JSON
+# response shape as the legacy Lemon Squeezy license API (we built the new
+# server to match that shape so the desktop client didn't have to change
+# beyond this URL flip). The license key itself is the credential — no API
+# token or store ID needed in the desktop binary. Endpoints:
+#   POST /activate    — consume 1 of 5 activations, returns instance_id
+#   POST /validate    — verify key + instance still good
+#   POST /deactivate  — free the activation slot
 # These accept application/x-www-form-urlencoded bodies (not JSON).
-LEMONSQUEEZY_API_BASE = "https://api.lemonsqueezy.com"
-# Re-validate against LS at most once per 24h to catch refunds / expirations
-# without hammering the API on every request.
+LEMONSQUEEZY_API_BASE = "https://bitaxeballer.com/api/license"
+# Re-validate against the license server at most once per 24h to catch
+# refunds / expirations without hammering the endpoint on every request.
 LICENSE_REVALIDATE_S = 24 * 3600
 
 # Tuning presets for Gamma (BM1370)
@@ -1280,7 +1283,7 @@ def _ls_error_message(payload: dict, status: int) -> str:
             if "disabled" in low or "revoked" in low or "refunded" in low:
                 return "This license is no longer valid (refunded or revoked). Contact support if this is a mistake."
             return err
-    return f"Lemon Squeezy returned HTTP {status}"
+    return f"License server returned HTTP {status}"
 
 
 def _dev_pro_override() -> bool:
@@ -1337,7 +1340,7 @@ def api_license_status():
     if lic.get("key") and lic.get("activation_id") and (time.time() - (last or 0)) > LICENSE_REVALIDATE_S:
         try:
             status, payload = _ls_license_post(
-                "/v1/licenses/validate",
+                "/validate",
                 {"license_key": lic["key"], "instance_id": lic["activation_id"]},
             )
             # LS's validate endpoint returns 200 with `valid: false` for revoked/
@@ -1374,11 +1377,11 @@ def api_license_activate():
 
         try:
             status, payload = _ls_license_post(
-                "/v1/licenses/activate",
+                "/activate",
                 {"license_key": key, "instance_name": _machine_label()},
             )
         except requests.RequestException as e:
-            return jsonify({"error": f"Could not reach Lemon Squeezy: {type(e).__name__}"}), 502
+            return jsonify({"error": f"Could not reach license server: {type(e).__name__}"}), 502
 
         # LS returns 200 with `activated: false` + an error string on failure,
         # rather than a 4xx. Treat either form as failure.
@@ -1387,7 +1390,7 @@ def api_license_activate():
 
         fields = _extract_license_fields(payload, key_fallback=key)
         if not fields.get("activation_id"):
-            return jsonify({"error": "Lemon Squeezy response missing instance id"}), 502
+            return jsonify({"error": "License server response missing instance id"}), 502
 
         _save_license(fields)
         return jsonify({"ok": True, "license": _license_summary(fields, active=is_pro_active())})
@@ -1404,7 +1407,7 @@ def api_license_deactivate():
 
         try:
             status, payload = _ls_license_post(
-                "/v1/licenses/deactivate",
+                "/deactivate",
                 {"license_key": lic["key"], "instance_id": lic["activation_id"]},
             )
         except requests.RequestException as e:
@@ -1416,7 +1419,7 @@ def api_license_deactivate():
             return jsonify({
                 "ok": True,
                 "license": {"active": False},
-                "warning": f"Cleared locally but Lemon Squeezy unreachable ({type(e).__name__}). The slot may need manual deactivation in the customer portal.",
+                "warning": f"Cleared locally but license server unreachable ({type(e).__name__}). The slot may need manual deactivation in the customer portal.",
             })
 
         # LS returns {deactivated: true} on success. Tolerate already-gone
