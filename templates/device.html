@@ -121,6 +121,55 @@ function recsPanel(d) {
   `).join('')}</div>`;
 }
 
+// "1 in X" formatter — keeps things readable as X grows by several OOM.
+// 1.2k, 54k, 1.8M, 2.1B — same scaling as `formatDiff` so the eye reads it
+// the same way across the page.
+function _bpFmtOneIn(n) {
+  if (n == null) return '—';
+  n = Number(n);
+  if (!isFinite(n) || n <= 0) return '—';
+  if (n < 1000) return Math.round(n).toString();
+  const units = [['k', 1e3], ['M', 1e6], ['B', 1e9], ['T', 1e12]];
+  for (let i = units.length - 1; i >= 0; i--) {
+    if (n >= units[i][1]) {
+      const v = n / units[i][1];
+      return (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + units[i][0];
+    }
+  }
+  return Math.round(n).toLocaleString();
+}
+
+function blockProbPanel(d) {
+  const bp = d && d.blockProbability;
+  if (!bp || !bp.difficulty) return '';
+  const proximityPct = Math.max(0, Math.min(100, (bp.proximity || 0) * 100));
+  const rewardUsd = bp.rewardUsd ? Math.round(bp.rewardUsd).toLocaleString() : '—';
+  const chainTip = `Network difficulty + ${bp.symbol} price refresh every 10 minutes from free public APIs (mempool.space for BTC, blockchair for BCH). Reward is the post-2024-halving block subsidy.`;
+  const proximityTip = `Log-scaled position of your best-ever share difficulty relative to the network's current difficulty. 100% means your best share equals the network target — you found a block. The bar moves linearly across orders of magnitude, so a small visible shift = a 10× harder share.`;
+  const oddsTip = `Pure math at your current hashrate vs the network difficulty. These are average odds — actual time-to-block is wildly variable. Solo mining is a lottery; this is the ticket count.`;
+  return `
+    <div class="detail-section block-prob">
+      <h2 data-tip="${chainTip}">solo block probability · ${escapeHtml(bp.chainName)}</h2>
+      <div class="bp-meta">
+        diff <span class="bp-diff">${formatDiff(bp.difficulty)}</span>
+        · reward <span class="bp-reward">${bp.reward} ${escapeHtml(bp.symbol)}</span>
+        / <span class="bp-usd">$${rewardUsd}</span>
+      </div>
+      <div class="bp-grid" data-tip="${oddsTip}">
+        <div class="bp-cell"><div class="bp-l">daily</div><div class="bp-v">1 in ${_bpFmtOneIn(bp.dailyOneIn)}</div></div>
+        <div class="bp-cell"><div class="bp-l">monthly</div><div class="bp-v">1 in ${_bpFmtOneIn(bp.monthlyOneIn)}</div></div>
+        <div class="bp-cell"><div class="bp-l">yearly</div><div class="bp-v">1 in ${_bpFmtOneIn(bp.yearlyOneIn)}</div></div>
+      </div>
+      <div class="bp-bar-row" data-tip="${proximityTip}">
+        <div class="bp-bar-label">block proximity</div>
+        <div class="bp-bar">
+          <div class="bp-bar-marker" style="left: ${proximityPct.toFixed(2)}%"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 const PRESET_TIPS = {
   stock:      'Factory baseline — known-good for the BM1370. Always start here when validating a new device or pool change.',
   mild:       'Small overclock — typically gains a few % hashrate with negligible HW errors. Safe daily-driver setting.',
@@ -467,6 +516,8 @@ function renderDetail(d) {
         <canvas class="chart-t" data-ip="${d.ip}"></canvas>
       </div>
     </div>
+
+    ${blockProbPanel(d)}
 
     <div class="detail-section">
       <h2>tune & control</h2>

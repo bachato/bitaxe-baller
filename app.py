@@ -465,6 +465,151 @@ def compute_recommendations(s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, 
     return recs[:3]
 
 
+# ---------- Solo block probability ----------
+# Estimates the user's chance of finding a block at the current hashrate, plus
+# how close their best-share difficulty is to the network's. Inferred chain
+# (BTC / BCH) comes from the stratum URL; network difficulty + USD price come
+# from free public APIs (mempool.space, blockchair), cached for 10 min since
+# these values change slowly (BTC re-targets every ~2 weeks).
+
+# Updated after the April 2024 halvings. Next halvings ~2028 — bump then.
+_BLOCK_REWARDS = {"btc": 3.125, "bch": 3.125}
+
+# Stratum URL needles → chain id. Anything not matched falls through to BTC.
+_CHAIN_PATTERNS = [
+    ("bch", ("bch.", "-bch.", "bitcoin-cash", "bcash")),
+]
+
+_chain_stats_cache = {}   # chain_id → (fetched_at, stats_dict)
+_CHAIN_TTL_SEC = 600
+
+def _infer_chain(stratum_url, stratum_port=0):
+    if not stratum_url:
+        return "btc"
+    u = str(stratum_url).lower()
+    # solohash.co.uk uses port 3337 for BCH (port 3333 is BTC). The host alone
+    # doesn't tell us which, so peek at the port.
+    if "solohash" in u and str(stratum_port) == "3337":
+        return "bch"
+    for chain, needles in _CHAIN_PATTERNS:
+        if any(n in u for n in needles):
+            return chain
+    return "btc"
+
+def _parse_diff(value):
+    """Firmware reports diffs as strings like '1.68G', '16.69G', '682.42M'. Returns float."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value).strip()
+    if not s or s == "0":
+        return 0.0
+    mult = 1.0
+    if s and s[-1] in "kKmMgGtTpP":
+        mult = {"K": 1e3, "M": 1e6, "G": 1e9, "T": 1e12, "P": 1e15}[s[-1].upper()]
+        s = s[:-1]
+    try:
+        return float(s) * mult
+    except (ValueError, TypeError):
+        return 0.0
+
+def _fetch_btc_stats():
+    try:
+        tip_hash = requests.get("https://mempool.space/api/blocks/tip/hash", timeout=4).text.strip()
+        block = requests.get(f"https://mempool.space/api/block/{tip_hash}", timeout=4).json()
+        prices = requests.get("https://mempool.space/api/v1/prices", timeout=4).json()
+        return {
+            "chain": "btc", "name": "Bitcoin", "symbol": "BTC",
+            "difficulty": float(block.get("difficulty", 0)),
+            "reward": _BLOCK_REWARDS["btc"],
+            "priceUsd": float(prices.get("USD", 0)),
+        }
+    except Exception as e:
+        print(f"[block-prob] BTC stats fetch failed: {e}")
+        return None
+
+def _fetch_bch_stats():
+    try:
+        r = requests.get("https://api.blockchair.com/bitcoin-cash/stats", timeout=4).json()
+        d = r.get("data", {})
+        return {
+            "chain": "bch", "name": "Bitcoin Cash", "symbol": "BCH",
+            "difficulty": float(d.get("difficulty", 0)),
+            "reward": _BLOCK_REWARDS["bch"],
+            "priceUsd": float(d.get("market_price_usd", 0)),
+        }
+    except Exception as e:
+        print(f"[block-prob] BCH stats fetch failed: {e}")
+        return None
+
+_CHAIN_FETCHERS = {"btc": _fetch_btc_stats, "bch": _fetch_bch_stats}
+
+def _chain_stats(chain_id):
+    """Cached fetch. Returns stale cache on transient failure; None if never fetched."""
+    now = time.time()
+    cached = _chain_stats_cache.get(chain_id)
+    if cached and (now - cached[0]) < _CHAIN_TTL_SEC:
+        return cached[1]
+    fetcher = _CHAIN_FETCHERS.get(chain_id)
+    if not fetcher:
+        return cached[1] if cached else None
+    fresh = fetcher()
+    if fresh:
+        _chain_stats_cache[chain_id] = (now, fresh)
+        return fresh
+    return cached[1] if cached else None
+
+def _block_probability_math(hashrate_ghs, network_diff, best_diff_value):
+    """
+    For solo mining: expected blocks/sec = hashrate / (2^32 × difficulty).
+    Returns daily/monthly/yearly '1 in X' integers + a 0..1 proximity ratio.
+    Proximity uses log10(best+1) / log10(diff+1) so the bar moves linearly
+    across "orders of magnitude closer to a block" rather than linearly in
+    raw difficulty — which would look stuck at zero forever.
+    """
+    if hashrate_ghs <= 0 or network_diff <= 0:
+        return None
+    per_sec = (hashrate_ghs * 1e9) / ((2 ** 32) * network_diff)
+    if per_sec <= 0:
+        return None
+    import math
+    daily_n   = max(1, round(1 / (per_sec * 86400)))
+    monthly_n = max(1, round(1 / (per_sec * 86400 * 30)))
+    yearly_n  = max(1, round(1 / (per_sec * 86400 * 365)))
+    if best_diff_value > 0 and network_diff > 1:
+        proximity = max(0.0, min(1.0,
+            math.log10(best_diff_value + 1) / math.log10(network_diff + 1)))
+    else:
+        proximity = 0.0
+    return {
+        "dailyOneIn":   daily_n,
+        "monthlyOneIn": monthly_n,
+        "yearlyOneIn":  yearly_n,
+        "proximity":    round(proximity, 4),
+    }
+
+def _solo_block_payload(stratum_url, stratum_port, hashrate_ghs, best_diff_str):
+    """Top-level builder for the device_summary 'blockProbability' field. None if unavailable."""
+    chain_id = _infer_chain(stratum_url, stratum_port)
+    stats = _chain_stats(chain_id)
+    if not stats:
+        return None
+    prob = _block_probability_math(hashrate_ghs, stats["difficulty"], _parse_diff(best_diff_str))
+    if not prob:
+        return None
+    return {
+        "chain":       stats["chain"],
+        "chainName":   stats["name"],
+        "symbol":      stats["symbol"],
+        "difficulty":  stats["difficulty"],
+        "reward":      stats["reward"],
+        "priceUsd":    stats["priceUsd"],
+        "rewardUsd":   round(stats["reward"] * stats["priceUsd"], 2),
+        **prob,
+    }
+
+
 def device_summary(s):
     if not s["latest"]:
         return {
@@ -582,6 +727,12 @@ def device_summary(s):
         "recommendations": recs,
         "severity": _max_severity(recs),
         "autotune": _autotune_summary(s),
+        "blockProbability": _solo_block_payload(
+            latest.get("stratumURL", ""),
+            latest.get("stratumPort", 0),
+            ghs,
+            latest.get("bestDiff", "0"),
+        ),
         "history": [
             {
                 "t": p["t"],
