@@ -14,19 +14,31 @@ A new section on the device detail page, between **live metrics** and **tune & c
 
 ### Chain auto-detection
 
-The stratum URL drives which chain we compute against. v1.10.0 ships with two:
+The stratum URL drives which chain we compute against. v1.10.0 ships with six — every SHA-256d chain a Bitaxe can realistically solo:
 
-- **BTC** is the fall-through default — matches `solo.ckpool.org`, `public-pool.io`, `solo.solomining.io:3333`, `*.solohash.co.uk:3333`, etc.
-- **BCH** is detected via host substrings (`bch.`, `-bch.`, `bitcoin-cash`, `bcash`) or the solohash.co.uk port 3337 convention.
+| Coin | Symbol | Subsidy | URL needles |
+|---|---|---|---|
+| Bitcoin | BTC | 3.125 | (fall-through default) |
+| Bitcoin Cash | BCH | 3.125 | `bch.`, `-bch.`, `bitcoin-cash`, `bcash`, solohash port 3337 |
+| Bitcoin SV | BSV | 3.125 | `bsv.`, `-bsv.`, `bitcoin-sv` |
+| eCash | XEC | 3,125,000 | `xec.`, `-xec.`, `ecash`, `bcha` |
+| DigiByte | DGB | ~575 | `dgb.`, `-dgb.`, `digibyte` |
+| Namecoin | NMC | 0.78125 | `nmc.`, `-nmc.`, `namecoin` |
 
-More SHA-256 chains (BSV, eCash, Digibyte) are a 15-LOC drop-in per chain — file an issue or PR if you want a specific pool target supported.
+XEC and NMC have unusual subsidy units — XEC retained BCHA's 8-decimal redenomination so a "block" pays ~3.125M XEC at penny-fraction prices, and NMC sits low on its BTC-mirrored halving schedule. The USD figure renders with extra decimals when the value is below $100 so you actually see the number rather than a rounded "$0". For Namecoin specifically: it's merge-mined with BTC, so if you're solo-mining NMC you're effectively *also* mining BTC on the same hashes; the widget's math is independent per-chain.
 
 ### Data sources
 
-- BTC: latest block + USD price from `mempool.space` (no auth, no key, no rate limit at our cadence).
-- BCH: difficulty + USD price from `api.blockchair.com/bitcoin-cash/stats`.
+| Chain | Difficulty | USD price |
+|---|---|---|
+| BTC | mempool.space (latest block) | mempool.space `/prices` |
+| BCH | blockchair `/bitcoin-cash/stats` | blockchair (same call) |
+| XEC | blockchair `/ecash/stats` | blockchair (same call) |
+| BSV | whatsonchain `/v1/bsv/main/chain/info` | CoinGecko (`bitcoin-cash-sv`) |
+| DGB | chainz `/dgb/api.dws?q=getdifficulty` | CoinGecko (`digibyte`) |
+| NMC | chainz `/nmc/api.dws?q=getdifficulty` | CoinGecko (`namecoin`) |
 
-Cache TTL is 10 minutes. On a transient fetch failure, the widget keeps showing the last-good values rather than blanking out.
+Every endpoint is no-auth, no-key, no-rate-limit-at-our-cadence. Cache TTL is 10 minutes per chain. On a transient fetch failure, the widget keeps showing the last-good values rather than blanking out.
 
 ## Free tier — unchanged
 
@@ -59,7 +71,8 @@ Reference: a competitor app's screenshot at 621.89 GH/s solo BCH against 680.89 
 
 ## Known limitations in v1.10.0
 
-- BTC + BCH only. BSV, eCash, Digibyte are trivial to add — see the new helpers in `app.py` for the pattern.
 - Block proximity is a log-scaled best-share-vs-network ratio, not a luck-streak indicator. Two miners with the same best share will show the same bar position regardless of recent share history.
-- Reward shown is the block subsidy only (3.125 BTC / 3.125 BCH post-2024-halving). Mempool fees are omitted from the USD figure — they're highly variable and add ~5–20% on a typical block but would invalidate the cache every block.
+- Reward shown is the block subsidy only. Mempool fees are omitted from the USD figure — they're highly variable and would invalidate the cache every block. For BTC that's a 0–10% understatement on a typical block; for the alts it's usually negligible.
+- DigiByte uses a smooth subsidy decay rather than discrete halvings. The constant in `_BLOCK_REWARDS["dgb"]` will drift slowly; we'll bump it in a future release. Today's number is within 1% of reality.
+- Namecoin is merge-mined with BTC — the same hashes that win BTC blocks can also win NMC blocks at NMC's much lower difficulty. The widget treats NMC standalone (computes against NMC's network diff), which is the right math but doesn't capture the "you're also mining BTC" upside.
 - Mobile companion app shows the new field via the relay but doesn't render the widget yet — that's a mobile-side UI task tracked separately.

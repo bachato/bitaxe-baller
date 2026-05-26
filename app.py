@@ -468,15 +468,37 @@ def compute_recommendations(s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, 
 # ---------- Solo block probability ----------
 # Estimates the user's chance of finding a block at the current hashrate, plus
 # how close their best-share difficulty is to the network's. Inferred chain
-# (BTC / BCH) comes from the stratum URL; network difficulty + USD price come
-# from free public APIs (mempool.space, blockchair), cached for 10 min since
-# these values change slowly (BTC re-targets every ~2 weeks).
+# (BTC / BCH / BSV / XEC / DGB / NMC) comes from the stratum URL; network
+# difficulty and USD price come from free public APIs (mempool.space for BTC,
+# blockchair for the rest), cached for 10 min since these values change slowly
+# (BTC re-targets every ~2016 blocks, others vary).
+#
+# All six chains are SHA-256d — the same hashing the BM1370 already does. What
+# changes per chain is the network difficulty (the "lottery odds"), the block
+# subsidy, and the USD price; the hashrate math is identical.
 
-# Updated after the April 2024 halvings. Next halvings ~2028 — bump then.
-_BLOCK_REWARDS = {"btc": 3.125, "bch": 3.125}
+# Block subsidies as of 2026. Pulled from the live block on each chain;
+# refresh after the next halving epoch (BTC/BCH/BSV ~2028, XEC ~2028,
+# DGB smoothly decreasing, NMC ~2028).
+_BLOCK_REWARDS = {
+    "btc": 3.125,
+    "bch": 3.125,
+    "bsv": 3.125,
+    "xec": 3_125_000.0,   # eCash retained BCHA's 8-decimal redenomination — block subsidy is ~3.125M XEC
+    "dgb": 575.0,         # Digibyte uses a smooth subsidy curve, ~575 at the time this code was written
+    "nmc": 0.78125,       # NMC follows BTC's halving schedule (50 → 25 → 12.5 → 6.25 → 3.125 → 1.5625 → 0.78125 by 2024)
+}
 
-# Stratum URL needles → chain id. Anything not matched falls through to BTC.
+# Stratum URL needles → chain id. First match wins, so list more-specific
+# chains before more-generic ones. Anything unmatched falls through to BTC.
 _CHAIN_PATTERNS = [
+    ("xec", ("xec.", "-xec.", "ecash", "bcha")),
+    ("bsv", ("bsv.", "-bsv.", "bitcoin-sv", "bitcoin sv")),
+    ("dgb", ("dgb.", "-dgb.", "digibyte")),
+    ("nmc", ("nmc.", "-nmc.", "namecoin")),
+    # BCH last among the alts — its "bch" needle is a substring of common
+    # solohash hostnames, which is OK because solohash already routes by
+    # the port-3337 heuristic just below the pattern loop.
     ("bch", ("bch.", "-bch.", "bitcoin-cash", "bcash")),
 ]
 
@@ -529,21 +551,108 @@ def _fetch_btc_stats():
         print(f"[block-prob] BTC stats fetch failed: {e}")
         return None
 
-def _fetch_bch_stats():
+def _fetch_blockchair_stats(chain_id, slug, name, symbol):
+    """Shared blockchair fetcher — BCH and XEC both expose /<slug>/stats
+    with the same field shape. Returns None for chains not on the free tier
+    (BSV / DGB / NMC are 404 → they use the alt fetchers below)."""
     try:
-        r = requests.get("https://api.blockchair.com/bitcoin-cash/stats", timeout=4).json()
+        r = requests.get(f"https://api.blockchair.com/{slug}/stats", timeout=4).json()
         d = r.get("data", {})
         return {
-            "chain": "bch", "name": "Bitcoin Cash", "symbol": "BCH",
+            "chain": chain_id, "name": name, "symbol": symbol,
             "difficulty": float(d.get("difficulty", 0)),
-            "reward": _BLOCK_REWARDS["bch"],
+            "reward": _BLOCK_REWARDS[chain_id],
             "priceUsd": float(d.get("market_price_usd", 0)),
         }
     except Exception as e:
-        print(f"[block-prob] BCH stats fetch failed: {e}")
+        print(f"[block-prob] {symbol} stats fetch failed: {e}")
         return None
 
-_CHAIN_FETCHERS = {"btc": _fetch_btc_stats, "bch": _fetch_bch_stats}
+def _fetch_coingecko_price(slug):
+    """CoinGecko's free /simple/price endpoint. No auth, no key, low rate-limit
+    but we only hit it once per cache TTL (10 min) per chain."""
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": slug, "vs_currencies": "usd"},
+            timeout=4,
+        ).json()
+        return float(r.get(slug, {}).get("usd", 0))
+    except Exception as e:
+        print(f"[block-prob] CoinGecko {slug} price fetch failed: {e}")
+        return 0.0
+
+def _fetch_bch_stats(): return _fetch_blockchair_stats("bch", "bitcoin-cash", "Bitcoin Cash", "BCH")
+def _fetch_xec_stats(): return _fetch_blockchair_stats("xec", "ecash",        "eCash",        "XEC")
+
+def _fetch_bsv_stats():
+    # WhatsOnChain is BSV's canonical block explorer — `/chain/info` returns
+    # the live difficulty. Price comes from CoinGecko (the `bitcoin-cash-sv`
+    # id is correct as of 2026; BSV's CG slug changed once historically).
+    try:
+        info = requests.get("https://api.whatsonchain.com/v1/bsv/main/chain/info", timeout=4).json()
+        return {
+            "chain": "bsv", "name": "Bitcoin SV", "symbol": "BSV",
+            "difficulty": float(info.get("difficulty", 0)),
+            "reward": _BLOCK_REWARDS["bsv"],
+            "priceUsd": _fetch_coingecko_price("bitcoin-cash-sv"),
+        }
+    except Exception as e:
+        print(f"[block-prob] BSV stats fetch failed: {e}")
+        return None
+
+def _fetch_chainz_difficulty(chain_path):
+    """chainz.cryptoid.info exposes per-chain `getdifficulty` as a bare number
+    string. No auth, no key, no rate-limit at our cadence. Note: for
+    multi-algo chains (like DGB), this returns the aggregate / active-algo
+    diff, not algo-specific — see the DGB caveat in the release notes."""
+    try:
+        r = requests.get(f"https://chainz.cryptoid.info/{chain_path}/api.dws", params={"q": "getdifficulty"}, timeout=4)
+        return float(r.text.strip())
+    except Exception as e:
+        print(f"[block-prob] chainz {chain_path} difficulty fetch failed: {e}")
+        return 0.0
+
+def _fetch_dgb_stats():
+    # DGB is multi-algo (Scrypt / SHA-256 / Qubit / Skein / Odo); chainz
+    # returns an aggregate diff. The SHA-256 algo-specific diff isn't on a
+    # free public API I could find, so we use the aggregate as a reasonable
+    # proxy. Flagged in the release notes as a known limitation.
+    diff = _fetch_chainz_difficulty("dgb")
+    if diff <= 0:
+        return None
+    return {
+        "chain": "dgb", "name": "DigiByte", "symbol": "DGB",
+        "difficulty": diff,
+        "reward": _BLOCK_REWARDS["dgb"],
+        "priceUsd": _fetch_coingecko_price("digibyte"),
+    }
+
+def _fetch_nmc_stats():
+    # Namecoin is merge-mined with BTC — the same hashes that win BTC blocks
+    # also win NMC blocks at NMC's network difficulty. Network diff comes back
+    # close to BTC's because that's literally what miners are aiming at.
+    # The math we expose is still useful (per-hash odds at the device's
+    # hashrate) but a savvy reader should remember: if you're solo NMC,
+    # you're getting BTC rewards too whenever a BTC block hits.
+    diff = _fetch_chainz_difficulty("nmc")
+    if diff <= 0:
+        return None
+    return {
+        "chain": "nmc", "name": "Namecoin", "symbol": "NMC",
+        "difficulty": diff,
+        "reward": _BLOCK_REWARDS["nmc"],
+        "priceUsd": _fetch_coingecko_price("namecoin"),
+    }
+
+_CHAIN_FETCHERS = {
+    "btc": _fetch_btc_stats,
+    "bch": _fetch_bch_stats,
+    "bsv": _fetch_bsv_stats,
+    "xec": _fetch_xec_stats,
+    "dgb": _fetch_dgb_stats,
+    "nmc": _fetch_nmc_stats,
+}
 
 def _chain_stats(chain_id):
     """Cached fetch. Returns stale cache on transient failure; None if never fetched."""

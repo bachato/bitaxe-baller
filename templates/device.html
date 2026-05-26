@@ -143,7 +143,16 @@ function blockProbPanel(d) {
   const bp = d && d.blockProbability;
   if (!bp || !bp.difficulty) return '';
   const proximityPct = Math.max(0, Math.min(100, (bp.proximity || 0) * 100));
-  const rewardUsd = bp.rewardUsd ? Math.round(bp.rewardUsd).toLocaleString() : '—';
+  // Small-value coins (XEC, NMC) need decimals or the user sees "$0" — only
+  // round to whole dollars when the value is comfortably above the cent line.
+  const rewardUsd = (() => {
+    const v = bp.rewardUsd;
+    if (v == null || !isFinite(v)) return '—';
+    if (v >= 100) return Math.round(v).toLocaleString();
+    if (v >= 1)   return v.toFixed(2);
+    if (v > 0)    return v.toFixed(4);
+    return '0';
+  })();
   const chainTip = `Network difficulty + ${bp.symbol} price refresh every 10 minutes from free public APIs (mempool.space for BTC, blockchair for BCH). Reward is the post-2024-halving block subsidy.`;
   const proximityTip = `Log-scaled position of your best-ever share difficulty relative to the network's current difficulty. 100% means your best share equals the network target — you found a block. The bar moves linearly across orders of magnitude, so a small visible shift = a 10× harder share.`;
   const oddsTip = `Pure math at your current hashrate vs the network difficulty. These are average odds — actual time-to-block is wildly variable. Solo mining is a lottery; this is the ticket count.`;
