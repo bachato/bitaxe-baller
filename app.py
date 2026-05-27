@@ -28,7 +28,7 @@ import relay_client
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.10.0"
+APP_VERSION = "1.11.0"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -161,8 +161,12 @@ def init_device_state(ip, label):
         "session_start": time.time(),
         "session_shares_start": None,
         "session_hwerrors_start": None,
-        "events": deque(maxlen=50),  # tuning changes, restarts, etc
-        "autotune": None,            # populated when a sweep is in flight
+        "events": deque(maxlen=50),         # tuning changes, restarts, etc
+        "autotune": None,                   # populated when a sweep is in flight
+        "share_events": deque(maxlen=50),   # streaming shares feed (rolling 50)
+        "prev_shares_accepted": None,       # last polled value, for delta detection
+        "prev_shares_rejected": None,
+        "prev_best_diff_value": 0.0,        # for new-best detection
     }
 
 
@@ -216,6 +220,45 @@ def poll_one(ip, label):
                 s["session_shares_start"] = data.get("sharesAccepted", 0)
                 s["session_hwerrors_start"] = data.get("sharesRejected", 0)
 
+            # Share-event detection (live share feed). We don't have access to
+            # the actual difficulty of each individual share — firmware only
+            # exposes counters and the running best. So we synthesize two event
+            # types: "accepted/rejected" deltas (with count, e.g. "+3 accepted")
+            # and a "new best!" event when bestDiff crosses upward.
+            cur_accepted = int(data.get("sharesAccepted", 0) or 0)
+            cur_rejected = int(data.get("sharesRejected", 0) or 0)
+            cur_best_val = _parse_diff(data.get("bestDiff", "0"))
+            cur_best_str = str(data.get("bestDiff", "0"))
+            if s["prev_shares_accepted"] is not None:
+                d_acc = cur_accepted - s["prev_shares_accepted"]
+                d_rej = cur_rejected - (s["prev_shares_rejected"] or 0)
+                # Firmware can reset counters on restart; skip negative deltas.
+                if d_acc > 0:
+                    s["share_events"].appendleft({
+                        "t": ts,
+                        "type": "accepted",
+                        "count": d_acc,
+                    })
+                if d_rej > 0:
+                    s["share_events"].appendleft({
+                        "t": ts,
+                        "type": "rejected",
+                        "count": d_rej,
+                    })
+                if cur_best_val > s["prev_best_diff_value"] and s["prev_best_diff_value"] > 0:
+                    # Prepend so the most-recent event is at index 0.
+                    s["share_events"].appendleft({
+                        "t": ts,
+                        "type": "new_best",
+                        "best_diff": cur_best_str,
+                        "best_diff_value": cur_best_val,
+                    })
+                    log_event(ip, f"new best share: {cur_best_str}")
+            s["prev_shares_accepted"] = cur_accepted
+            s["prev_shares_rejected"] = cur_rejected
+            if cur_best_val > s["prev_best_diff_value"]:
+                s["prev_best_diff_value"] = cur_best_val
+
             point = {
                 "t": ts,
                 "hashRate": data.get("hashRate", 0),
@@ -244,10 +287,17 @@ def poll_one(ip, label):
             if ip in state:
                 _autotune_tick(ip, state[ip])
                 summary_for_alerts = device_summary(state[ip])
+                new_best_this_tick = bool(s["share_events"]) and s["share_events"][0].get("type") == "new_best" and s["share_events"][0].get("t") == ts
         # Alerts check uses the public summary (so the same shape the UI sees).
         # Done outside the state_lock since it does HTTP to Discord webhooks
         # and we don't want to hold the lock across a network round-trip.
         _alerts_check(ip, label, summary_for_alerts)
+        # Leaderboard submission (Pro opt-in). Outside state_lock since it
+        # does network I/O. Silent no-op when feature is disabled.
+        try:
+            _maybe_submit_leaderboard(summary_for_alerts, new_best=new_best_this_tick)
+        except Exception:
+            pass
     except Exception as e:
         with state_lock:
             if ip not in state:
@@ -773,6 +823,8 @@ def device_summary(s):
 
     recs = compute_recommendations(s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, ghs, expected_ghs)
 
+    best_diff_value = _parse_diff(latest.get("bestDiff", "0"))
+    best_session_diff_value = _parse_diff(latest.get("bestSessionDiff", "0"))
     return {
         "ip": s["ip"],
         "label": s["label"],
@@ -781,6 +833,7 @@ def device_summary(s):
         "model": latest.get("ASICModel", "unknown"),
         "version": latest.get("version", ""),
         "hostname": latest.get("hostname", ""),
+        "macAddr": latest.get("macAddr", ""),
         "metrics": {
             "hashRate": round(ghs, 1),
             "temp": round(latest.get("temp", 0), 1),
@@ -795,7 +848,9 @@ def device_summary(s):
             "sharesAccepted": latest.get("sharesAccepted", 0),
             "sharesRejected": latest.get("sharesRejected", 0),
             "bestDiff": latest.get("bestDiff", "0"),
+            "bestDiffValue": best_diff_value,
             "bestSessionDiff": latest.get("bestSessionDiff", "0"),
+            "bestSessionDiffValue": best_session_diff_value,
             "poolDifficulty": latest.get("poolDifficulty", 0),
             "uptime": latest.get("uptimeSeconds", 0),
             "stratumUrl": latest.get("stratumURL", ""),
@@ -853,6 +908,7 @@ def device_summary(s):
             for p in hist[-180:]
         ],
         "events": [{"t": e["t"], "msg": e["msg"]} for e in list(s["events"])[:10]],
+        "shareEvents": [dict(e) for e in list(s["share_events"])[:50]],
     }
 
 
@@ -1797,6 +1853,122 @@ def api_remote_disable():
     _save_remote_access_cfg(enabled=False, relay_url=_remote_access_cfg()["relay_url"])
     relay_client.stop()
     return jsonify({"ok": True, "status": relay_client.get_status()})
+
+
+# ---------- Public leaderboard (Pro opt-in) ----------
+#
+# Pro users can opt-in to submit their best-share difficulty to the public
+# leaderboard at bitaxeballer.com/leaderboard. Submission is per-device (one
+# row per MAC address) and includes a user-chosen display name (no real
+# identity is sent). Background submitter runs every ~5 minutes to keep
+# entries fresh; we also push immediately on a new personal-best.
+
+LEADERBOARD_SUBMIT_URL = os.environ.get(
+    "BITAXE_BALLER_LEADERBOARD_URL",
+    "https://bitaxeballer.com/api/leaderboard/submit",
+)
+_LEADERBOARD_DISPLAY_NAME_MAX = 30
+_LEADERBOARD_SUBMIT_INTERVAL_S = 300  # 5 min
+_leaderboard_last_submit: dict = {}   # mac -> ts of last successful submit
+
+
+def _leaderboard_cfg() -> dict:
+    cfg = load_config()
+    raw = cfg.get("public_leaderboard") or {}
+    return {
+        "enabled": bool(raw.get("enabled")),
+        "display_name": (raw.get("display_name") or "").strip()[:_LEADERBOARD_DISPLAY_NAME_MAX],
+    }
+
+
+def _leaderboard_save_cfg(enabled: bool, display_name: str) -> None:
+    with config_lock:
+        cfg = load_config()
+        cfg["public_leaderboard"] = {
+            "enabled": bool(enabled),
+            "display_name": (display_name or "").strip()[:_LEADERBOARD_DISPLAY_NAME_MAX],
+        }
+        save_config(cfg)
+
+
+def _leaderboard_sanitize_name(name: str) -> str:
+    """Strip control chars, collapse whitespace, enforce length. Display-side
+    profanity filter lives on the server — we don't try to be the moral
+    police inside a desktop app."""
+    if not name:
+        return ""
+    out = "".join(ch for ch in name if ch.isprintable() and ch not in "\n\r\t")
+    out = " ".join(out.split())
+    return out[:_LEADERBOARD_DISPLAY_NAME_MAX]
+
+
+def _leaderboard_submit_one(license_key: str, display_name: str, summary: dict, force: bool = False) -> bool:
+    """Submit a single device's best-share data. No-op if recently submitted
+    (per-mac throttle) unless force=True. Silent on failure — the leaderboard
+    is best-effort and shouldn't surface errors into the polling path."""
+    mac = (summary.get("macAddr") or "").strip()
+    if not mac:
+        return False
+    now = time.time()
+    last = _leaderboard_last_submit.get(mac, 0)
+    if not force and (now - last) < _LEADERBOARD_SUBMIT_INTERVAL_S:
+        return False
+    payload = {
+        "license_key": license_key,
+        "display_name": display_name,
+        "mac_addr": mac,
+        "model": (summary.get("model") or "").strip()[:40],
+        "best_diff_career": float(summary.get("metrics", {}).get("bestDiffValue", 0) or 0),
+        "best_diff_session": float(summary.get("metrics", {}).get("bestSessionDiffValue", 0) or 0),
+        "hashrate_th_avg": float(summary.get("rolling", {}).get("15m", 0) or 0) / 1000.0,
+        "app_version": APP_VERSION,
+    }
+    try:
+        r = requests.post(LEADERBOARD_SUBMIT_URL, json=payload, timeout=8)
+        if 200 <= r.status_code < 300:
+            _leaderboard_last_submit[mac] = now
+            return True
+    except requests.RequestException:
+        pass
+    return False
+
+
+def _maybe_submit_leaderboard(summary: dict, new_best: bool) -> None:
+    """Hook called from poll_one after each device tick. Skips silently if
+    feature off / no license / no display name."""
+    cfg = _leaderboard_cfg()
+    if not cfg["enabled"] or not cfg["display_name"]:
+        return
+    if not is_pro_active():
+        return
+    lic = _get_license()
+    key = (lic.get("key") or "").strip() if lic else ""
+    if not key:
+        return
+    _leaderboard_submit_one(key, cfg["display_name"], summary, force=new_best)
+
+
+@app.route("/api/leaderboard/status", methods=["GET"])
+def api_leaderboard_status():
+    return jsonify({
+        "pro_required": True,
+        "pro_active": is_pro_active(),
+        "configured": _leaderboard_cfg(),
+        "public_url": "https://bitaxeballer.com/leaderboard",
+    })
+
+
+@app.route("/api/leaderboard/save", methods=["POST"])
+def api_leaderboard_save():
+    if not is_pro_active():
+        return jsonify({"error": "Public leaderboard is a Pro feature."}), 402
+    body = request.get_json(silent=True) or {}
+    enabled = bool(body.get("enabled"))
+    display_name = _leaderboard_sanitize_name(str(body.get("display_name") or ""))
+    if enabled and not display_name:
+        return jsonify({"error": "Display name is required to enable the public leaderboard."}), 400
+    _leaderboard_save_cfg(enabled=enabled, display_name=display_name)
+    return jsonify({"ok": True, "configured": _leaderboard_cfg()})
 
 
 def _is_private_v4(ip):

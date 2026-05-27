@@ -145,6 +145,30 @@
 
 <main id="devices"></main>
 
+<section class="fleet-leaderboard" id="fleet-leaderboard" hidden>
+  <header class="fleet-leaderboard-head">
+    <h2 data-tip="Your fleet ranked by best-share difficulty. 'Session' resets when the device restarts; 'all-time' is lifetime per firmware. Best-share is a lottery metric — small miners can occasionally beat big miners on a lucky hash.">
+      🏆 fleet leaderboard
+    </h2>
+    <div class="fleet-leaderboard-actions">
+      <a href="https://bitaxeballer.com/leaderboard" target="_blank" rel="noopener"
+         class="fleet-leaderboard-public" data-tip="See the public cross-user leaderboard. Submit your own scores by enabling 'public leaderboard' inside the Pro modal.">
+        public leaderboard →
+      </a>
+    </div>
+  </header>
+  <div class="fleet-leaderboard-grid">
+    <div class="fleet-leaderboard-col">
+      <div class="fleet-leaderboard-col-label">all-time best</div>
+      <ol class="fleet-leaderboard-list" id="fleet-best-alltime"></ol>
+    </div>
+    <div class="fleet-leaderboard-col">
+      <div class="fleet-leaderboard-col-label">session best</div>
+      <ol class="fleet-leaderboard-list" id="fleet-best-session"></ol>
+    </div>
+  </div>
+</section>
+
 <details class="alerts-section" id="alerts-section">
   <summary data-tip="Pro: Discord webhook alerts when devices go offline or temps exceed thresholds. Click to configure.">
     <span class="alerts-icon">🔔</span>
@@ -157,7 +181,7 @@
 </details>
 
 <footer>
-  <div>Bitaxe Baller v1.10.0 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.11.0 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -252,6 +276,10 @@ function renderCompactDevice(d) {
           <div class="s" data-tip="Shares accepted per minute since the current benchmark session started. Stable share rate is a sign of solid tuning.">
             <div class="l">shares/min</div><div class="v">${(sh.perMin ?? 0).toFixed(2)}</div>
           </div>
+        </div>
+        <div class="compact-shares" data-tip="Best-share difficulty: highest-difficulty share this miner has ever submitted ('all-time') vs since the device's last firmware reset ('session'). Best-share is a lottery metric — small miners can occasionally beat big ones on luck.">
+          <span class="best-share-badge"><span class="bs-l">best</span><span class="bs-v">${formatDiff(m.bestDiff)}</span></span>
+          <span class="best-share-badge session"><span class="bs-l">session</span><span class="bs-v">${formatDiff(m.bestSessionDiff)}</span></span>
         </div>
         <div class="compact-rec ${top.sev}">
           <span class="text">${top.html}</span>
@@ -671,6 +699,54 @@ async function testAlertsWebhook() {
 
 window.addEventListener('DOMContentLoaded', initAlertsSection);
 
+// Render the fleet best-shares leaderboard. Top 5 in each category. Online
+// devices only — offline devices don't have current data and showing them
+// would confuse "session best" semantics.
+function renderFleetLeaderboard(devices) {
+  const wrap = document.getElementById('fleet-leaderboard');
+  if (!wrap) return;
+  const online = devices.filter(d => d.online && d.metrics);
+  // Hide the whole widget if there's nothing to rank (single offline device =
+  // empty leaderboard = noise).
+  if (online.length < 1) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+
+  const byAllTime = [...online]
+    .sort((a, b) => (b.metrics.bestDiffValue || 0) - (a.metrics.bestDiffValue || 0))
+    .slice(0, 5);
+  const bySession = [...online]
+    .sort((a, b) => (b.metrics.bestSessionDiffValue || 0) - (a.metrics.bestSessionDiffValue || 0))
+    .slice(0, 5);
+
+  const row = (d, i, useSession) => {
+    const val = useSession ? d.metrics.bestSessionDiff : d.metrics.bestDiff;
+    const valFormatted = formatDiff(val);
+    return `
+      <li class="fleet-rank-row" data-rank="${i + 1}">
+        <a class="fleet-rank-link" href="/device/${d.ip}">
+          <span class="fleet-rank-pos">${i + 1}</span>
+          <span class="fleet-rank-label">${escapeHtml(d.label)}</span>
+          <span class="fleet-rank-meta">${escapeHtml(d.model || '')}</span>
+          <span class="fleet-rank-diff">${valFormatted}</span>
+        </a>
+      </li>
+    `;
+  };
+
+  const allTimeEl = document.getElementById('fleet-best-alltime');
+  const sessionEl = document.getElementById('fleet-best-session');
+  if (allTimeEl) {
+    allTimeEl.innerHTML = byAllTime.length
+      ? byAllTime.map((d, i) => row(d, i, false)).join('')
+      : '<li class="fleet-empty">no shares yet</li>';
+  }
+  if (sessionEl) {
+    sessionEl.innerHTML = bySession.length
+      ? bySession.map((d, i) => row(d, i, true)).join('')
+      : '<li class="fleet-empty">no shares yet</li>';
+  }
+}
+
 async function poll() {
   try {
     const devices = await api('/api/devices');
@@ -688,6 +764,8 @@ async function poll() {
     } else {
       main.innerHTML = devices.map(renderCompactDevice).join('');
     }
+
+    renderFleetLeaderboard(devices);
 
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
   } catch (e) {

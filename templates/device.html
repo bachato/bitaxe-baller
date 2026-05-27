@@ -93,7 +93,7 @@
 </section>
 
 <footer>
-  <div>Bitaxe Baller v1.10.0 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.11.0 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -175,6 +175,47 @@ function blockProbPanel(d) {
           <div class="bp-bar-marker" style="left: ${proximityPct.toFixed(2)}%"></div>
         </div>
       </div>
+    </div>
+  `;
+}
+
+// ---------- live share feed ----------
+// Streaming list of share events detected between polls. Three types:
+//   - accepted: +N shares accepted since last poll
+//   - rejected: +N shares rejected (HW errors)
+//   - new_best: bestDiff crossed upward — "🏆 new personal best!"
+// Empty state shows a hint so the panel doesn't look broken on first load.
+function sharesFeedPanel(d) {
+  const events = (d && d.shareEvents) || [];
+  const tip = 'Streaming list of share events detected since polling started for this device. Bitaxes do not report per-share difficulty — we synthesize from counter deltas. New-best events fire when bestDiff crosses upward.';
+  const body = events.length === 0
+    ? `<div class="share-empty">Waiting for the next share… (firmware reports counters every 5s; you should see something within a minute or two on a healthy miner.)</div>`
+    : events.map(ev => {
+        const ts = fmtTime(ev.t * 1000);
+        if (ev.type === 'new_best') {
+          return `<div class="share-event new-best">
+            <span class="share-time">${ts}</span>
+            <span class="share-icon">★</span>
+            <span class="share-text"><strong>new personal best</strong> · ${escapeHtml(ev.best_diff)} difficulty</span>
+          </div>`;
+        }
+        if (ev.type === 'rejected') {
+          return `<div class="share-event rejected">
+            <span class="share-time">${ts}</span>
+            <span class="share-icon">✗</span>
+            <span class="share-text">${ev.count} rejected (HW error)</span>
+          </div>`;
+        }
+        return `<div class="share-event accepted">
+          <span class="share-time">${ts}</span>
+          <span class="share-icon">✓</span>
+          <span class="share-text">${ev.count} accepted</span>
+        </div>`;
+      }).join('');
+  return `
+    <div class="detail-section share-feed-section">
+      <h2 data-tip="${tip}">live shares</h2>
+      <div class="share-feed">${body}</div>
     </div>
   `;
 }
@@ -527,6 +568,8 @@ function renderDetail(d) {
     </div>
 
     ${blockProbPanel(d)}
+
+    ${sharesFeedPanel(d)}
 
     <div class="detail-section">
       <h2>tune & control</h2>

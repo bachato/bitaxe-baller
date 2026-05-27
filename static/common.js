@@ -497,11 +497,12 @@ async function _renderProModal() {
   _updateProButton(status.active);
   if (status.active) {
     const isDev = !!status.dev_mode;
-    // Fetch remote-access status in parallel-ish so the modal stays snappy. We
-    // already know Pro is active so the endpoint will give back a real
-    // configured/runtime block rather than a 402.
+    // Fetch remote-access + leaderboard status in parallel-ish so the modal stays snappy.
+    // We already know Pro is active so these endpoints return real configured/runtime blocks.
     let remote = null;
+    let leaderboard = null;
     try { remote = await api('/api/remote/status'); } catch (_) { /* show modal without it */ }
+    try { leaderboard = await api('/api/leaderboard/status'); } catch (_) { /* show modal without it */ }
     body.innerHTML = `
       <div class="pro-active">
         <div class="pro-active-badge ${isDev ? 'dev' : ''}">${_proIconHtml()}<span>${isDev ? 'Dev override — Pro features unlocked locally' : 'Active on this machine'}</span></div>
@@ -513,6 +514,7 @@ async function _renderProModal() {
           ${status.expires_at ? `<dt>Renews</dt><dd>${escapeHtml(new Date(status.expires_at).toLocaleDateString())}</dd>` : ''}
         </dl>
         ${remote ? _renderRemoteAccessSection(remote, isDev) : ''}
+        ${leaderboard ? _renderLeaderboardSection(leaderboard, isDev) : ''}
         ${isDev ? '' : `
           <p class="pro-fineprint">Deactivating frees this slot so you can move your license to another machine. Your subscription stays active.</p>
           <div class="pro-actions">
@@ -525,6 +527,8 @@ async function _renderProModal() {
     if (deact) deact.addEventListener('click', _handleDeactivate);
     const remoteToggle = document.getElementById('remote-toggle');
     if (remoteToggle) remoteToggle.addEventListener('click', _handleRemoteToggle);
+    const lbForm = document.getElementById('leaderboard-form');
+    if (lbForm) lbForm.addEventListener('submit', _handleLeaderboardSave);
   } else {
     body.innerHTML = `
       <p class="pro-blurb">Paste the license key you received from Polar after purchase. Free tier features keep working either way.</p>
@@ -592,6 +596,67 @@ async function _handleRemoteToggle(ev) {
     toast('Could not toggle remote access: ' + (e.message || e), 'error');
     btn.disabled = false;
     btn.textContent = wasEnabled ? 'Turn off' : 'Turn on';
+  }
+}
+
+// Public leaderboard opt-in. Renders inside the Pro modal beneath remote access.
+function _renderLeaderboardSection(lb, isDev) {
+  const cfg = lb.configured || {};
+  const enabled = !!cfg.enabled;
+  const name = cfg.display_name || '';
+  const publicUrl = lb.public_url || 'https://bitaxeballer.com/leaderboard';
+  // Dev override has no real license — submissions would reject on the server.
+  // Show the section but disable the form with a one-liner explanation.
+  const devNote = isDev
+    ? '<p class="remote-fineprint">Dev override mode — leaderboard submissions need a real activated license to authenticate against the server.</p>'
+    : '';
+  return `
+    <section class="remote-section leaderboard-section">
+      <div class="remote-head">
+        <div class="remote-title">Public leaderboard</div>
+        <div class="remote-state ${enabled ? 'on' : 'off'}">
+          <span class="remote-dot"></span>${enabled ? 'Submitting' : 'Off'}
+        </div>
+      </div>
+      <p class="remote-blurb">Add your fleet to the public best-shares leaderboard at <a href="${publicUrl}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">bitaxeballer.com/leaderboard</a>. We send one row per device — your display name, the device's model, its best-share difficulty, and its 15-minute hashrate. No IP, no location, no real name.</p>
+      ${devNote}
+      <form class="leaderboard-form" id="leaderboard-form" autocomplete="off">
+        <label for="leaderboard-name">Display name <span style="color:var(--dim);font-weight:400;font-size:11px">(30 char max; letters, numbers, spaces)</span></label>
+        <input type="text" id="leaderboard-name" name="display_name" maxlength="30" value="${escapeHtml(name)}" placeholder="e.g. nathan-baller" spellcheck="false" autocapitalize="off" ${isDev ? 'disabled' : ''}>
+        <div class="pro-actions" style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+          <label class="leaderboard-toggle" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+            <input type="checkbox" id="leaderboard-enabled" ${enabled ? 'checked' : ''} ${isDev ? 'disabled' : ''}>
+            Submit my best shares
+          </label>
+          <button type="submit" class="primary" ${isDev ? 'disabled' : ''}>Save</button>
+        </div>
+        <div class="pro-feedback" id="leaderboard-feedback"></div>
+      </form>
+    </section>
+  `;
+}
+
+async function _handleLeaderboardSave(ev) {
+  ev.preventDefault();
+  const fb = document.getElementById('leaderboard-feedback');
+  const enabled = document.getElementById('leaderboard-enabled').checked;
+  const name = (document.getElementById('leaderboard-name').value || '').trim();
+  if (enabled && !name) {
+    fb.textContent = 'A display name is required to enable submissions.';
+    fb.className = 'pro-feedback error';
+    return;
+  }
+  fb.textContent = '';
+  try {
+    const r = await api('/api/leaderboard/save', 'POST', { enabled, display_name: name });
+    if (r && r.ok) {
+      toast(enabled ? `Submitting as "${name}" — your scores will land on the public board within 5 min` : 'Public leaderboard disabled', 'info');
+    } else {
+      throw new Error(r && r.error || 'unknown error');
+    }
+  } catch (e) {
+    fb.textContent = 'Save failed: ' + (e.message || e);
+    fb.className = 'pro-feedback error';
   }
 }
 
