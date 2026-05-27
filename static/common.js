@@ -530,6 +530,10 @@ async function _renderProModal() {
     const lbForm = document.getElementById('leaderboard-form');
     if (lbForm) lbForm.addEventListener('submit', _handleLeaderboardSave);
   } else {
+    // Free-tier branch: render activation form + the leaderboard opt-in
+    // (which works for free users too as of v1.12).
+    let leaderboard = null;
+    try { leaderboard = await api('/api/leaderboard/status'); } catch (_) { /* show modal without it */ }
     body.innerHTML = `
       <p class="pro-blurb">Paste the license key you received from Polar after purchase. Free tier features keep working either way.</p>
       <form class="pro-form" id="pro-activate-form" autocomplete="off">
@@ -541,8 +545,11 @@ async function _renderProModal() {
         </div>
         <div class="pro-feedback" id="pro-feedback"></div>
       </form>
+      ${leaderboard ? _renderLeaderboardSection(leaderboard, false) : ''}
     `;
     document.getElementById('pro-activate-form').addEventListener('submit', _handleActivate);
+    const lbForm = document.getElementById('leaderboard-form');
+    if (lbForm) lbForm.addEventListener('submit', _handleLeaderboardSave);
   }
 }
 
@@ -599,36 +606,48 @@ async function _handleRemoteToggle(ev) {
   }
 }
 
-// Public leaderboard opt-in. Renders inside the Pro modal beneath remote access.
+// Public leaderboard opt-in. Renders inside the Pro modal — open to all
+// users as of v1.12 (free tier authenticates with install_uuid + verified
+// email; Pro authenticates with the license key).
 function _renderLeaderboardSection(lb, isDev) {
   const cfg = lb.configured || {};
   const enabled = !!cfg.enabled;
   const name = cfg.display_name || '';
+  const email = cfg.email || '';
+  const isPro = !!lb.pro_active;
   const publicUrl = lb.public_url || 'https://bitaxeballer.com/leaderboard';
-  // Dev override has no real license — submissions would reject on the server.
-  // Show the section but disable the form with a one-liner explanation.
-  const devNote = isDev
-    ? '<p class="remote-fineprint">Dev override mode — leaderboard submissions need a real activated license to authenticate against the server.</p>'
-    : '';
+
+  // Headline copy adapts to tier
+  const headline = isPro
+    ? 'Submit one row per device. Your license key is the credential. Win monthly per-model prizes.'
+    : 'Free to enter. Verified email + a display name is all we need. Top miner in each Bitaxe model wins a free month of Pro every month; places 2-5 get a discount code.';
+
+  // Dev override: free flow still works (uses install_uuid + email path
+  // ignoring the absent license). No need to disable the form here.
   return `
     <section class="remote-section leaderboard-section">
       <div class="remote-head">
-        <div class="remote-title">Public leaderboard</div>
+        <div class="remote-title">Public leaderboard ${isPro ? '<span class="pro-tag" style="margin-left:6px;">🏆 PRO</span>' : '<span class="free-tag" style="margin-left:6px;font-size:10px;color:var(--dim);">FREE TIER</span>'}</div>
         <div class="remote-state ${enabled ? 'on' : 'off'}">
           <span class="remote-dot"></span>${enabled ? 'Submitting' : 'Off'}
         </div>
       </div>
-      <p class="remote-blurb">Add your fleet to the public best-shares leaderboard at <a href="${publicUrl}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">bitaxeballer.com/leaderboard</a>. We send one row per device — your display name, the device's model, its best-share difficulty, and its 15-minute hashrate. No IP, no location, no real name.</p>
-      ${devNote}
+      <p class="remote-blurb">${headline} Public page: <a href="${publicUrl}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">bitaxeballer.com/leaderboard</a>.</p>
+      <p class="remote-fineprint" style="margin-top:6px;">Per device we send: display name, MAC address, model, best-share difficulty, 15-min hashrate. We do NOT send: your IP (the server captures it for abuse moderation only), location, real name, or anything not listed above. ${isPro ? 'Your license key is hashed before storage.' : 'Your install ID and email authenticate submissions; both are kept private and not shared.'}</p>
       <form class="leaderboard-form" id="leaderboard-form" autocomplete="off">
-        <label for="leaderboard-name">Display name <span style="color:var(--dim);font-weight:400;font-size:11px">(30 char max; letters, numbers, spaces)</span></label>
-        <input type="text" id="leaderboard-name" name="display_name" maxlength="30" value="${escapeHtml(name)}" placeholder="e.g. nathan-baller" spellcheck="false" autocapitalize="off" ${isDev ? 'disabled' : ''}>
+        <label for="leaderboard-name">Display name <span style="color:var(--dim);font-weight:400;font-size:11px">(30 char max; letters, numbers, spaces, . _ -)</span></label>
+        <input type="text" id="leaderboard-name" name="display_name" maxlength="30" value="${escapeHtml(name)}" placeholder="e.g. nathan-baller" spellcheck="false" autocapitalize="off">
+        ${isPro ? '' : `
+          <label for="leaderboard-email" style="margin-top:10px;">Email <span style="color:var(--dim);font-weight:400;font-size:11px">(only used to deliver prizes if you win)</span></label>
+          <input type="email" id="leaderboard-email" name="email" maxlength="200" value="${escapeHtml(email)}" placeholder="you@example.com" spellcheck="false" autocapitalize="off" autocomplete="email">
+          <p class="remote-fineprint" style="margin:6px 0 0 0;font-size:11px;">After saving, check your inbox for a one-click verification email. Unverified emails can climb the board but aren't eligible to win the monthly prize.</p>
+        `}
         <div class="pro-actions" style="margin-top:10px;display:flex;gap:8px;align-items:center;">
           <label class="leaderboard-toggle" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
-            <input type="checkbox" id="leaderboard-enabled" ${enabled ? 'checked' : ''} ${isDev ? 'disabled' : ''}>
+            <input type="checkbox" id="leaderboard-enabled" ${enabled ? 'checked' : ''}>
             Submit my best shares
           </label>
-          <button type="submit" class="primary" ${isDev ? 'disabled' : ''}>Save</button>
+          <button type="submit" class="primary">Save</button>
         </div>
         <div class="pro-feedback" id="leaderboard-feedback"></div>
       </form>
@@ -641,16 +660,29 @@ async function _handleLeaderboardSave(ev) {
   const fb = document.getElementById('leaderboard-feedback');
   const enabled = document.getElementById('leaderboard-enabled').checked;
   const name = (document.getElementById('leaderboard-name').value || '').trim();
+  const emailEl = document.getElementById('leaderboard-email');
+  const email = emailEl ? (emailEl.value || '').trim() : '';
   if (enabled && !name) {
     fb.textContent = 'A display name is required to enable submissions.';
     fb.className = 'pro-feedback error';
     return;
   }
+  if (enabled && emailEl && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    fb.textContent = 'A valid email is required for free-tier submission. We only use it to deliver prizes if you win.';
+    fb.className = 'pro-feedback error';
+    return;
+  }
   fb.textContent = '';
   try {
-    const r = await api('/api/leaderboard/save', 'POST', { enabled, display_name: name });
+    const body = { enabled, display_name: name };
+    if (emailEl) body.email = email;
+    const r = await api('/api/leaderboard/save', 'POST', body);
     if (r && r.ok) {
-      toast(enabled ? `Submitting as "${name}" — your scores will land on the public board within 5 min` : 'Public leaderboard disabled', 'info');
+      toast(enabled
+        ? (emailEl
+          ? `Submitting as "${name}" — check ${email} for a verification link to be eligible for monthly prizes.`
+          : `Submitting as "${name}" — your scores land on the public board within 5 min.`)
+        : 'Public leaderboard disabled', 'info', 6000);
     } else {
       throw new Error(r && r.error || 'unknown error');
     }

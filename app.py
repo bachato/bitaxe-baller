@@ -28,7 +28,7 @@ import relay_client
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.11.0"
+APP_VERSION = "1.12.0"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -1855,13 +1855,21 @@ def api_remote_disable():
     return jsonify({"ok": True, "status": relay_client.get_status()})
 
 
-# ---------- Public leaderboard (Pro opt-in) ----------
+# ---------- Public leaderboard (free + Pro opt-in, v1.12+) ----------
 #
-# Pro users can opt-in to submit their best-share difficulty to the public
-# leaderboard at bitaxeballer.com/leaderboard. Submission is per-device (one
-# row per MAC address) and includes a user-chosen display name (no real
-# identity is sent). Background submitter runs every ~5 minutes to keep
-# entries fresh; we also push immediately on a new personal-best.
+# As of v1.12, any user can opt-in to submit their best-share difficulty to
+# the public leaderboard at bitaxeballer.com/leaderboard.
+#
+#   - Pro users authenticate with their license key (no email needed)
+#   - Free users authenticate with a locally-generated install_uuid plus an
+#     email (verified one-click via the leaderboard server). Email is used
+#     ONLY to deliver monthly prizes; no marketing emails.
+#
+# Submission is per-device (one row per MAC address). Display name is
+# user-chosen; the server rejects profanity/bad characters.
+#
+# Background submitter pushes every ~5 minutes per device, and immediately on
+# a new personal-best.
 
 LEADERBOARD_SUBMIT_URL = os.environ.get(
     "BITAXE_BALLER_LEADERBOARD_URL",
@@ -1872,21 +1880,39 @@ _LEADERBOARD_SUBMIT_INTERVAL_S = 300  # 5 min
 _leaderboard_last_submit: dict = {}   # mac -> ts of last successful submit
 
 
+def _install_uuid() -> str:
+    """Stable per-install identifier used to authenticate free-tier
+    leaderboard submissions. Generated once on first read, persisted to
+    config.json. NOT a hardware fingerprint — moving the install to a new
+    machine = new uuid, and that's the design intent."""
+    with config_lock:
+        cfg = load_config()
+        uuid_val = (cfg.get("install_uuid") or "").strip()
+        if not uuid_val:
+            import uuid as _uuid_mod
+            uuid_val = str(_uuid_mod.uuid4())
+            cfg["install_uuid"] = uuid_val
+            save_config(cfg)
+        return uuid_val
+
+
 def _leaderboard_cfg() -> dict:
     cfg = load_config()
     raw = cfg.get("public_leaderboard") or {}
     return {
         "enabled": bool(raw.get("enabled")),
         "display_name": (raw.get("display_name") or "").strip()[:_LEADERBOARD_DISPLAY_NAME_MAX],
+        "email": (raw.get("email") or "").strip().lower()[:200],
     }
 
 
-def _leaderboard_save_cfg(enabled: bool, display_name: str) -> None:
+def _leaderboard_save_cfg(enabled: bool, display_name: str, email: str) -> None:
     with config_lock:
         cfg = load_config()
         cfg["public_leaderboard"] = {
             "enabled": bool(enabled),
             "display_name": (display_name or "").strip()[:_LEADERBOARD_DISPLAY_NAME_MAX],
+            "email": (email or "").strip().lower()[:200],
         }
         save_config(cfg)
 
@@ -1902,7 +1928,20 @@ def _leaderboard_sanitize_name(name: str) -> str:
     return out[:_LEADERBOARD_DISPLAY_NAME_MAX]
 
 
-def _leaderboard_submit_one(license_key: str, display_name: str, summary: dict, force: bool = False) -> bool:
+def _leaderboard_validate_email(email: str) -> bool:
+    """Light client-side check; the server is the authority. We just want to
+    bounce obviously-invalid input before paying for the round-trip."""
+    if not email:
+        return False
+    s = email.strip().lower()
+    if "@" not in s or "." not in s.split("@")[-1]:
+        return False
+    if any(c in s for c in " \t\n\r,;") or len(s) > 200:
+        return False
+    return True
+
+
+def _leaderboard_submit_one(summary: dict, force: bool = False) -> bool:
     """Submit a single device's best-share data. No-op if recently submitted
     (per-mac throttle) unless force=True. Silent on failure — the leaderboard
     is best-effort and shouldn't surface errors into the polling path."""
@@ -1913,9 +1952,11 @@ def _leaderboard_submit_one(license_key: str, display_name: str, summary: dict, 
     last = _leaderboard_last_submit.get(mac, 0)
     if not force and (now - last) < _LEADERBOARD_SUBMIT_INTERVAL_S:
         return False
+    cfg = _leaderboard_cfg()
+    if not cfg["enabled"] or not cfg["display_name"]:
+        return False
     payload = {
-        "license_key": license_key,
-        "display_name": display_name,
+        "display_name": cfg["display_name"],
         "mac_addr": mac,
         "model": (summary.get("model") or "").strip()[:40],
         "best_diff_career": float(summary.get("metrics", {}).get("bestDiffValue", 0) or 0),
@@ -1923,6 +1964,17 @@ def _leaderboard_submit_one(license_key: str, display_name: str, summary: dict, 
         "hashrate_th_avg": float(summary.get("rolling", {}).get("15m", 0) or 0) / 1000.0,
         "app_version": APP_VERSION,
     }
+    # Auth: Pro = license_key; free = install_uuid + email
+    if is_pro_active():
+        lic = _get_license()
+        key = (lic.get("key") or "").strip() if lic else ""
+        if key:
+            payload["license_key"] = key
+    if "license_key" not in payload:
+        if not cfg["email"]:
+            return False  # free-tier requires email
+        payload["install_uuid"] = _install_uuid()
+        payload["email"] = cfg["email"]
     try:
         r = requests.post(LEADERBOARD_SUBMIT_URL, json=payload, timeout=8)
         if 200 <= r.status_code < 300:
@@ -1935,39 +1987,38 @@ def _leaderboard_submit_one(license_key: str, display_name: str, summary: dict, 
 
 def _maybe_submit_leaderboard(summary: dict, new_best: bool) -> None:
     """Hook called from poll_one after each device tick. Skips silently if
-    feature off / no license / no display name."""
+    feature off / no display name / (free tier) no email."""
     cfg = _leaderboard_cfg()
     if not cfg["enabled"] or not cfg["display_name"]:
         return
-    if not is_pro_active():
+    # Free tier additionally requires an email
+    if not is_pro_active() and not cfg["email"]:
         return
-    lic = _get_license()
-    key = (lic.get("key") or "").strip() if lic else ""
-    if not key:
-        return
-    _leaderboard_submit_one(key, cfg["display_name"], summary, force=new_best)
+    _leaderboard_submit_one(summary, force=new_best)
 
 
 @app.route("/api/leaderboard/status", methods=["GET"])
 def api_leaderboard_status():
     return jsonify({
-        "pro_required": True,
         "pro_active": is_pro_active(),
         "configured": _leaderboard_cfg(),
+        "install_uuid": _install_uuid(),
         "public_url": "https://bitaxeballer.com/leaderboard",
     })
 
 
 @app.route("/api/leaderboard/save", methods=["POST"])
 def api_leaderboard_save():
-    if not is_pro_active():
-        return jsonify({"error": "Public leaderboard is a Pro feature."}), 402
     body = request.get_json(silent=True) or {}
     enabled = bool(body.get("enabled"))
     display_name = _leaderboard_sanitize_name(str(body.get("display_name") or ""))
+    email = (str(body.get("email") or "")).strip().lower()[:200]
     if enabled and not display_name:
         return jsonify({"error": "Display name is required to enable the public leaderboard."}), 400
-    _leaderboard_save_cfg(enabled=enabled, display_name=display_name)
+    # Free tier requires email; Pro tier can submit without (license is the credential)
+    if enabled and not is_pro_active() and not _leaderboard_validate_email(email):
+        return jsonify({"error": "Email is required for free-tier leaderboard submission (used only to deliver prizes if you win a monthly contest)."}), 400
+    _leaderboard_save_cfg(enabled=enabled, display_name=display_name, email=email)
     return jsonify({"ok": True, "configured": _leaderboard_cfg()})
 
 
