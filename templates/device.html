@@ -397,10 +397,10 @@ function autotunePanel(d) {
   if (a.status === 'idle') {
     const minFreq = m.frequency || 525;
     return `
-      <div class="autotune-idle" data-tip="Frequency-only sweep — bumps +25 MHz every 90s until HW errors climb or temps hit 65°C. Worst case ~12 min. Voltage is NEVER changed during a sweep.">
+      <div class="autotune-idle" data-tip="Frequency-only sweep — bumps +25 MHz every 90s until HW errors climb or temps hit 65°C (149°F). Worst case ~12 min. Voltage is NEVER changed during a sweep.">
         <p class="hint" style="margin-bottom: 10px">
           Probe this chip's stable frequency ceiling. Starts at <b>${minFreq} MHz</b>, steps +25 MHz every ${90}s.
-          Aborts immediately on temps ≥ 65°C or HW errors ≥ 5%.
+          Aborts immediately on temps ≥ ${fmtTemp(65, 0)}${tempUnitLabel()} or HW errors ≥ 5%.
         </p>
         <div class="autotune-controls">
           <label data-tip="Don't go above this frequency. Default = top of the safety range (700 MHz).">
@@ -425,7 +425,7 @@ function autotunePanel(d) {
           <span>baseline ${a.baseline?.frequency} MHz</span>
           <span>next eval in <b>${nextIn}s</b></span>
         </div>
-        ${lo.freq_mhz ? `<div class="autotune-observed">last observed @ ${lo.freq_mhz} MHz: HW ${lo.hw_pct}% (${lo.samples} shares), ASIC ${lo.asic_temp}°C / VR ${lo.vr_temp}°C</div>` : ''}
+        ${lo.freq_mhz ? `<div class="autotune-observed">last observed @ ${lo.freq_mhz} MHz: HW ${lo.hw_pct}% (${lo.samples} shares), ASIC ${fmtTemp(lo.asic_temp)}${tempUnitLabel()} / VR ${fmtTemp(lo.vr_temp)}${tempUnitLabel()}</div>` : ''}
         ${autotuneEventLog(a.events)}
         <div class="autotune-controls" style="margin-top: 12px">
           <button type="button" class="danger" onclick="autotuneStop()" data-tip="Stop the sweep and restore the baseline frequency.">stop & restore baseline</button>
@@ -530,8 +530,8 @@ function renderDetail(d) {
       <div class="grid">
         <div class="stat" data-tip="Live hashrate this poll (instantaneous, noisy). Trust the rolling averages below for actual performance comparison."><div class="l">hashrate</div><div class="v good">${fmtHashrate(m.hashRate, 1)}<span class="u">${hashrateUnitLabel()}</span></div></div>
         <div class="stat" data-tip="Currently applied ASIC clock frequency. Set in the tune section below."><div class="l">frequency</div><div class="v">${m.frequency}<span class="u">MHz</span></div></div>
-        <div class="stat" data-tip="ASIC chip temperature. Green <60°C, yellow 60–65°C, red >65°C."><div class="l">asic temp</div><div class="v ${tempClass(m.temp, true)}">${m.temp}<span class="u">°C</span></div></div>
-        <div class="stat" data-tip="Voltage Regulator temperature — the part that fails first on overclocked boards. Watch this more closely than ASIC temp. Green <55°C, yellow 55–65°C, red >65°C."><div class="l">vr temp</div><div class="v ${tempClass(m.vrTemp, false)}">${m.vrTemp}<span class="u">°C</span></div></div>
+        <div class="stat" data-tip="ASIC chip temperature. Green <60°C (140°F), yellow 60–65°C (140–149°F), red >65°C (149°F)."><div class="l">asic temp</div><div class="v ${tempClass(m.temp, true)}">${fmtTemp(m.temp)}<span class="u">${tempUnitLabel()}</span></div></div>
+        <div class="stat" data-tip="Voltage Regulator temperature — the part that fails first on overclocked boards. Watch this more closely than ASIC temp. Green <55°C (131°F), yellow 55–65°C (131–149°F), red >65°C (149°F)."><div class="l">vr temp</div><div class="v ${tempClass(m.vrTemp, false)}">${fmtTemp(m.vrTemp)}<span class="u">${tempUnitLabel()}</span></div></div>
         <div class="stat" data-tip="Requested core voltage. The chip delivers approximately this much; see 'measured' for actual."><div class="l">core voltage</div><div class="v">${m.coreVoltage}<span class="u">mV req</span></div></div>
         <div class="stat" data-tip="Actual voltage measured at the chip. Should be very close to requested if the VR is healthy."><div class="l">measured</div><div class="v info">${m.voltage}<span class="u">mV</span></div></div>
         <div class="stat" data-tip="Power as reported by the chip. Wall draw is ~5–10% higher due to PSU losses."><div class="l">power draw</div><div class="v">${m.power.toFixed(2)}<span class="u">W</span></div></div>
@@ -778,7 +778,12 @@ async function loadHistory() {
 
   // Adapt the API shape to what drawChart/drawTempChart expect.
   if (ch) drawChart(ch, pts.map(p => ({ h: p.hashRate })), 'h', '#00ff9c');
-  if (ct) drawTempChart(ct, pts.map(p => ({ asic: p.temp, vr: p.vrTemp })));
+  // Convert to user's selected unit at the rendering edge — drawTempChart is
+  // unit-agnostic; we just feed it whatever scale the axis should display in.
+  if (ct) drawTempChart(ct, pts.map(p => ({
+    asic: getTempUnit() === 'F' ? cToF(p.temp)   : p.temp,
+    vr:   getTempUnit() === 'F' ? cToF(p.vrTemp) : p.vrTemp,
+  })));
   if (ce) {
     const effPts = pts.map(p => ({
       e: p.hashRate > 0 ? p.power / (p.hashRate / 1000) : 0,

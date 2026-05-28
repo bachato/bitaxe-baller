@@ -264,11 +264,11 @@ function renderCompactDevice(d) {
           <div class="hash-sub" data-tip="Currently applied frequency / core voltage. Change them on the detail page.">15m avg <b>${fmtHashrate(r['15m'], 1)}</b> · ${m.frequency}MHz / ${m.coreVoltage}mV</div>
         </div>
         <div class="compact-stats">
-          <div class="s" data-tip="ASIC chip temperature. Green <60°C, yellow 60–65°C, red >65°C. Sustained operation over 65°C accelerates silicon degradation.">
-            <div class="l">asic</div><div class="v ${tempClass(m.temp, true)}">${m.temp}<span class="u">°C</span></div>
+          <div class="s" data-tip="ASIC chip temperature. Green <60°C (140°F), yellow 60–65°C (140–149°F), red >65°C (149°F). Sustained operation over 65°C accelerates silicon degradation.">
+            <div class="l">asic</div><div class="v ${tempClass(m.temp, true)}">${fmtTemp(m.temp)}<span class="u">${tempUnitLabel()}</span></div>
           </div>
-          <div class="s" data-tip="Voltage Regulator temperature. THIS is the part that kills boards — watch it more carefully than ASIC. Green <55°C, yellow 55–65°C, red >65°C.">
-            <div class="l">vr</div><div class="v ${tempClass(m.vrTemp, false)}">${m.vrTemp}<span class="u">°C</span></div>
+          <div class="s" data-tip="Voltage Regulator temperature. THIS is the part that kills boards — watch it more carefully than ASIC. Green <55°C (131°F), yellow 55–65°C (131–149°F), red >65°C (149°F).">
+            <div class="l">vr</div><div class="v ${tempClass(m.vrTemp, false)}">${fmtTemp(m.vrTemp)}<span class="u">${tempUnitLabel()}</span></div>
           </div>
           <div class="s" data-tip="Joules per terahash — power efficiency. Lower is better. Stock Gamma is around 17 J/TH; below 16 is excellent.">
             <div class="l">eff</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div>
@@ -626,8 +626,8 @@ async function loadAlertsConfig() {
       <div class="alerts-row">
         <span class="alerts-label">rules</span>
         <label data-tip="Send an alert if a device fails to respond for this many minutes."><span>offline ≥</span><input type="number" id="alerts-offline" min="1" max="120" value="${rules.offline_minutes ?? 5}"> min</label>
-        <label data-tip="Send an alert when VR temperature crosses this threshold. 65°C is the standard danger line."><span>VR temp ≥</span><input type="number" id="alerts-vr" min="40" max="100" value="${rules.vr_temp_c ?? 65}"> °C</label>
-        <label data-tip="Send an alert when ASIC temperature crosses this threshold."><span>ASIC temp ≥</span><input type="number" id="alerts-asic" min="40" max="100" value="${rules.asic_temp_c ?? 65}"> °C</label>
+        <label data-tip="Send an alert when VR temperature crosses this threshold. 65°C (149°F) is the standard danger line. Inputs are in your selected unit but stored as °C server-side."><span>VR temp ≥</span><input type="number" id="alerts-vr" min="${getTempUnit() === 'F' ? 104 : 40}" max="${getTempUnit() === 'F' ? 212 : 100}" value="${getTempUnit() === 'F' ? Math.round(cToF(rules.vr_temp_c ?? 65)) : (rules.vr_temp_c ?? 65)}"> ${tempUnitLabel()}</label>
+        <label data-tip="Send an alert when ASIC temperature crosses this threshold."><span>ASIC temp ≥</span><input type="number" id="alerts-asic" min="${getTempUnit() === 'F' ? 104 : 40}" max="${getTempUnit() === 'F' ? 212 : 100}" value="${getTempUnit() === 'F' ? Math.round(cToF(rules.asic_temp_c ?? 65)) : (rules.asic_temp_c ?? 65)}"> ${tempUnitLabel()}</label>
       </div>
 
       <div class="alerts-row">
@@ -649,13 +649,18 @@ async function loadAlertsConfig() {
 async function saveAlertsConfig(ev) {
   ev.preventDefault();
   const webhookField = document.getElementById('alerts-webhook').value.trim();
+  // Inputs are shown in the user's chosen unit but the server always stores
+  // °C. Convert F → C before submit so the alert thresholds remain unit-
+  // stable regardless of which display unit the user picked.
+  const vrInput = parseInt(document.getElementById('alerts-vr').value, 10) || (getTempUnit() === 'F' ? 149 : 65);
+  const asicInput = parseInt(document.getElementById('alerts-asic').value, 10) || (getTempUnit() === 'F' ? 149 : 65);
   const payload = {
     enabled: document.getElementById('alerts-enabled').checked,
     cooldown_minutes: parseInt(document.getElementById('alerts-cooldown').value, 10) || 30,
     rules: {
       offline_minutes: parseInt(document.getElementById('alerts-offline').value, 10) || 5,
-      vr_temp_c: parseInt(document.getElementById('alerts-vr').value, 10) || 65,
-      asic_temp_c: parseInt(document.getElementById('alerts-asic').value, 10) || 65,
+      vr_temp_c: Math.round(getTempUnit() === 'F' ? fToC(vrInput) : vrInput),
+      asic_temp_c: Math.round(getTempUnit() === 'F' ? fToC(asicInput) : asicInput),
     },
   };
   if (webhookField) payload.channels = { discord_webhook: webhookField };

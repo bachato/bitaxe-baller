@@ -215,6 +215,81 @@ window.addEventListener('DOMContentLoaded', () => {
   applyHashrateUnitUI(getHashrateUnit());
 });
 
+// ----- temperature unit toggle (°C ↔ °F) -----
+// Bitaxe firmware reports temperatures in °C natively. North-American users
+// often prefer °F. Stored per-browser in localStorage; affects display only —
+// server-side logs (CSV, SQLite), alert rule storage, and the autotune
+// guardrails always use °C, which is the engineering canonical for ASIC
+// thermal specs.
+function getTempUnit() {
+  try {
+    const u = localStorage.getItem('tempUnit');
+    return u === 'F' ? 'F' : 'C';
+  } catch (e) { return 'C'; }
+}
+function tempUnitLabel() {
+  return getTempUnit() === 'F' ? '°F' : '°C';
+}
+// C → F conversion. Bitaxe never reports sub-zero so we don't need to guard.
+function cToF(c) {
+  if (c == null || !isFinite(Number(c))) return c;
+  return Number(c) * 9 / 5 + 32;
+}
+// F → C, used when reading alert-rule inputs that the user may have typed in F.
+function fToC(f) {
+  if (f == null || !isFinite(Number(f))) return f;
+  return (Number(f) - 32) * 5 / 9;
+}
+// Format a °C value for display in whichever unit the user picked. Default
+// 1 decimal in C mode (matches what firmware reports), 0 in F mode (the
+// extra decimal is meaningless after a 9/5 multiplier on already-rounded
+// input — adds visual noise, no real precision).
+function fmtTemp(c, precision) {
+  if (c == null || !isFinite(Number(c))) return '—';
+  if (getTempUnit() === 'F') {
+    return cToF(c).toFixed(precision != null ? precision : 0);
+  }
+  return Number(c).toFixed(precision != null ? precision : 1);
+}
+function applyTempUnitUI(unit) {
+  const btn = document.getElementById('temp-unit-toggle');
+  if (!btn) return;
+  const lbl = btn.querySelector('.lbl');
+  if (lbl) lbl.textContent = unit === 'F' ? '°F' : '°C';
+  btn.setAttribute('aria-pressed', unit === 'F' ? 'true' : 'false');
+}
+function _injectTempUnitButton() {
+  const meta = document.querySelector('header .meta');
+  if (!meta || document.getElementById('temp-unit-toggle')) return;
+  const btn = document.createElement('button');
+  btn.id = 'temp-unit-toggle';
+  btn.className = 'theme-toggle';
+  btn.type = 'button';
+  btn.setAttribute('data-tip',
+    'Switch temperature display between °C and °F. AxeOS reports natively in °C; thresholds and alerts always store °C internally. Display only — logs always store °C.');
+  btn.innerHTML = '<span class="lbl">°C</span>';
+  // Place immediately after the hashrate toggle so the two unit switchers
+  // sit together, both before the theme toggle.
+  const hashBtn = document.getElementById('hash-unit-toggle');
+  const theme = document.getElementById('theme-toggle');
+  if (hashBtn && hashBtn.nextSibling) meta.insertBefore(btn, hashBtn.nextSibling);
+  else if (theme) meta.insertBefore(btn, theme);
+  else meta.appendChild(btn);
+  btn.addEventListener('click', () => {
+    const next = getTempUnit() === 'C' ? 'F' : 'C';
+    try { localStorage.setItem('tempUnit', next); } catch (e) {}
+    applyTempUnitUI(next);
+    // Refresh page-level render immediately rather than waiting for next poll.
+    if (typeof window.poll === 'function') window.poll();
+    // Detail page also re-renders alerts/inputs/charts via the standard poll.
+    if (typeof window.refreshDetail === 'function') window.refreshDetail();
+  });
+}
+window.addEventListener('DOMContentLoaded', () => {
+  _injectTempUnitButton();
+  applyTempUnitUI(getTempUnit());
+});
+
 // ----- toast notifications -----
 function toast(msg, type = 'info', timeout = 4000) {
   const host = document.getElementById('toasts');
