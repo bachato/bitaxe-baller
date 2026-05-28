@@ -1,0 +1,78 @@
+# Umbrel community app manifest for Bitaxe Baller.
+#
+# Spec reference: https://github.com/getumbrel/umbrel-apps/blob/master/.github/UMBREL_APP_YAML_SPEC.md
+# This file is mirrored to the community-store repo at:
+#   github.com/465media/umbrel-bitaxe-baller-store/bitaxe-baller/umbrel-app.yml
+
+manifestVersion: 1
+id: bitaxe-baller
+disabled: false
+name: Bitaxe Baller
+tagline: Live dashboard + tuner for your fleet of Bitaxe Bitcoin miners
+icon: https://bitaxeballer.com/img/icon-dark.svg
+category: bitcoin
+
+# Semver, matches APP_VERSION in app.py and the Mac/Windows release tags.
+# Bump in lockstep with the desktop release.
+version: "1.12.0"
+
+port: 5050
+description: >-
+  Bitaxe Baller is the dashboard + tuner that hobbyist Bitaxe miners actually
+  want. Auto-discovers every Bitaxe on your LAN, polls each one every 5
+  seconds, surfaces tuning recommendations with one-click apply, charts
+  hashrate and temperatures over time, and writes per-device CSV logs you
+  can drop into pandas or Excel.
+
+
+  Native UIs on Mac and Windows — and now on Umbrel. Run it on your home
+  server alongside your Bitcoin Core, Mempool, Electrs, etc., and your
+  fleet stays under monitoring 24/7 without leaving your Mac open.
+
+
+  Free tier includes the full LAN dashboard, mDNS publishing, network
+  scanner, recommendation engine, tuning controls, fan control, light/dark
+  theme, daily CSV logs, the solo block probability widget, the live share
+  feed, the local fleet leaderboard, and the public leaderboard at
+  bitaxeballer.com/leaderboard (free to enter — top miner per Bitaxe model
+  wins a free month of Pro every month).
+
+
+  Pro tier ($29/year, optional) unlocks bulk tuning across selected
+  devices, auto-tune frequency sweeps with hardware safety guardrails,
+  90 days of persistent local SQLite history, Discord webhook alerts,
+  and remote dashboard access from outside your LAN via the
+  relay.bitaxeballer.com WebSocket router.
+
+developer: 465 Media
+website: https://bitaxeballer.com
+dependencies: []
+repo: https://github.com/465media/bitaxe-baller
+support: https://bitaxeballer.com/support.html
+
+# Gallery images — Umbrel app store shows these in the app detail view.
+# Hosted on bitaxeballer.com so we can update without recutting a release.
+gallery:
+  - https://bitaxeballer.com/img/screenshots/home.jpg
+  - https://bitaxeballer.com/img/screenshots/device-detail.jpg
+  - https://bitaxeballer.com/img/screenshots/tune-panel.jpg
+
+releaseNotes: >-
+  v1.12.0 — Public leaderboard goes free for all users. Top miner in each
+  Bitaxe model wins a free month of Pro every month; places 2-5 get a 20%
+  off coupon. Verified email + 24h activity required to be prize-eligible.
+  First public draw: 2026-06-30. See full release notes:
+  https://bitaxeballer.com/changelog.html
+
+# Default credentials block — bitaxe-baller has no login (free tier) or
+# license-key auth (Pro). Umbrel's app_proxy can wrap with auth on the
+# /bitaxe-baller URL, OR users can hit it directly at port 5050.
+defaultUsername: ""
+defaultPassword: ""
+
+# Path prefix when accessed through Umbrel's reverse proxy.
+path: ""
+
+# Show the open-source MIT badge in the app store.
+submitter: 465 Media
+submission: https://github.com/465media/bitaxe-baller

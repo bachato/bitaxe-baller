@@ -1,0 +1,51 @@
+# Files NOT to send to the Docker build context. Keeps the image small and
+# the build fast; also stops local secrets / build artifacts from leaking in.
+
+# VCS
+.git
+.gitignore
+.gitattributes
+.github
+
+# Local dev environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Mac/Windows build outputs — these are huge and only used for the native
+# Mac/Windows binaries, not the container image.
+build/bitaxe-baller/
+build/.env.signing
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local data — never bake user config or logs into the image
+config.json
+logs/
+history.db
+history.db-journal
+
+# Docs / marketing / mobile — not needed at runtime
+README.md
+RELEASE_NOTES_*.md
+PRO_FEATURES.md
+marketing/
+mobile/
+screenshots/
+.claude/
+
+# Other tooling
+.editorconfig
+LICENSE
+CHANGELOG

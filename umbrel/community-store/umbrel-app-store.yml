@@ -1,0 +1,16 @@
+# Umbrel community app store metadata.
+#
+# When this file (and a bitaxe-baller/ folder) lives at the root of a
+# GitHub repo, Umbrel users can add the repo as a community app source via:
+#
+#   Umbrel UI → App Store → Community App Stores → Add Custom Store
+#   → paste:  https://github.com/465media/umbrel-bitaxe-baller-store
+#
+# Spec: https://github.com/getumbrel/umbrel-apps/blob/master/.github/UMBREL_APP_STORE_YAML_SPEC.md
+
+id: bitaxe-baller-community-store
+name: Bitaxe Baller
+tagline: Bitcoin mining tools for hobbyist Bitaxe owners
+icon: https://bitaxeballer.com/img/icon-dark.svg
+developer: 465 Media
+website: https://bitaxeballer.com

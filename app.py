@@ -58,7 +58,12 @@ def app_resource_dir() -> str:
 
 def app_data_dir() -> str:
     """User-writable directory for config.json and logs/. Source mode keeps
-    them next to app.py so the existing dev workflow is unchanged."""
+    them next to app.py so the existing dev workflow is unchanged. Container
+    deploys (Umbrel, Docker, etc.) override via BITAXE_BALLER_DATA_DIR so the
+    persistent volume sits outside the app directory."""
+    override = os.environ.get("BITAXE_BALLER_DATA_DIR", "").strip()
+    if override:
+        return override
     if not _is_frozen():
         return os.path.dirname(os.path.abspath(__file__))
     if sys.platform == "darwin":
@@ -1262,6 +1267,15 @@ def _autotune_summary(s: dict) -> dict:
 @app.route("/")
 def index():
     return render_template("dashboard.html", presets=PRESETS, bounds=BOUNDS)
+
+
+@app.route("/healthz")
+def healthz():
+    """Liveness probe for container orchestrators (Umbrel, Docker compose,
+    Kubernetes). Returns 200 with a tiny JSON body once Flask is serving;
+    intentionally does NOT touch the polling state or the SQLite history so
+    a sick poll thread doesn't flap the container."""
+    return jsonify({"ok": True, "version": APP_VERSION}), 200
 
 
 @app.route("/device/<ip>")

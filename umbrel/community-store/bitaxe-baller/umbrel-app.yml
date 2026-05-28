@@ -1,0 +1,62 @@
+# Symlink target — kept in sync with /umbrel/umbrel-app.yml in the main repo.
+# When publishing the community store as its own repo, copy this file in
+# place. (We don't symlink across repos.)
+#
+# For now, treat /umbrel/umbrel-app.yml in the main bitaxe-baller repo as
+# the source of truth and re-publish into the community store via:
+#   cp ../bitaxe-baller/umbrel/umbrel-app.yml ./
+#   cp ../bitaxe-baller/umbrel/docker-compose.yml ./
+
+manifestVersion: 1
+id: bitaxe-baller
+disabled: false
+name: Bitaxe Baller
+tagline: Live dashboard + tuner for your fleet of Bitaxe Bitcoin miners
+icon: https://bitaxeballer.com/img/icon-dark.svg
+category: bitcoin
+
+version: "1.12.0"
+
+port: 5050
+description: >-
+  Bitaxe Baller is the dashboard + tuner that hobbyist Bitaxe miners actually
+  want. Auto-discovers every Bitaxe on your LAN, polls each one every 5
+  seconds, surfaces tuning recommendations with one-click apply, charts
+  hashrate and temperatures over time, and writes per-device CSV logs you
+  can drop into pandas or Excel.
+
+
+  Free tier includes the full LAN dashboard, mDNS publishing, network
+  scanner, recommendation engine, tuning controls, fan control, daily CSV
+  logs, the solo block probability widget, the live share feed, and the
+  public leaderboard at bitaxeballer.com/leaderboard — free to enter, top
+  miner per Bitaxe model wins a free month of Pro every month.
+
+
+  Pro tier ($29/year) unlocks bulk tuning, auto-tune sweeps with safety
+  guardrails, 90 days of SQLite history, Discord alerts, and remote
+  dashboard access via our self-hosted WebSocket relay.
+
+developer: 465 Media
+website: https://bitaxeballer.com
+dependencies: []
+repo: https://github.com/465media/bitaxe-baller
+support: https://bitaxeballer.com/support.html
+
+gallery:
+  - https://bitaxeballer.com/img/screenshots/home.jpg
+  - https://bitaxeballer.com/img/screenshots/device-detail.jpg
+  - https://bitaxeballer.com/img/screenshots/tune-panel.jpg
+
+releaseNotes: >-
+  v1.12.0 — Public leaderboard goes free for all users. Top miner in each
+  Bitaxe model wins a free month of Pro every month; places 2-5 get a 20%
+  off coupon. First public draw: 2026-06-30. Full notes:
+  https://bitaxeballer.com/changelog.html
+
+defaultUsername: ""
+defaultPassword: ""
+path: ""
+
+submitter: 465 Media
+submission: https://github.com/465media/bitaxe-baller

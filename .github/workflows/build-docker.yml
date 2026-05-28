@@ -1,0 +1,93 @@
+# Build + push the multi-arch container image to GitHub Container Registry
+# on every v*.*.* tag push. The image is what the Umbrel community app
+# store's docker-compose.yml references — Umbrel pulls by digest, so this
+# workflow also extracts the digest and uses it later (downstream PR to
+# the umbrel-bitaxe-baller-store repo is a separate workflow, kept simple
+# here).
+#
+# Triggers:
+#   - push of a tag matching v*.*.* (same as build-windows.yml)
+#   - manual workflow_dispatch (handy for testing without bumping a version)
+
+name: Build Docker image
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write   # needed to push to ghcr.io/465media/*
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: 465media/bitaxe-baller
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      version: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Strip the leading 'v' from the tag so the image tag matches
+          # the semver in app.py APP_VERSION (e.g. v1.12.0 → 1.12.0).
+          tags: |
+            type=match,pattern=v(.*),group=1
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=Bitaxe Baller
+            org.opencontainers.image.description=Live dashboard + tuner for Bitaxe miners
+            org.opencontainers.image.vendor=465 Media
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.url=https://bitaxeballer.com
+            org.opencontainers.image.source=https://github.com/465media/bitaxe-baller
+
+      - name: Build + push (linux/amd64 + linux/arm64)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Most Umbrel installs run on either a Raspberry Pi (arm64),
+          # an x86 mini-PC, or a Mac Mini M-series (arm64). Both arches
+          # cover ~all of the install base.
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Pull from / push to GHA cache so subsequent builds are faster.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summarize for the release notes
+        run: |
+          echo "## Container image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Pushed: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Update the Umbrel compose template with this digest." >> $GITHUB_STEP_SUMMARY
