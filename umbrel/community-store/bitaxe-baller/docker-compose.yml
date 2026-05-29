@@ -25,7 +25,7 @@ services:
       PROXY_AUTH_ADD: "false"
 
   bitaxe-baller:
-    image: ghcr.io/465media/bitaxe-baller:1.13.0@sha256:REPLACE_AT_BUILD_TIME
+    image: ghcr.io/465media/bitaxe-baller:1.13.0@sha256:426bdb4fcaf5edba230888f19b074c6cb455b41f0a5ed0f830af640ea6b71e3b
     restart: on-failure
     stop_grace_period: 15s
     network_mode: host
