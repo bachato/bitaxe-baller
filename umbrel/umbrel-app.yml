@@ -18,9 +18,12 @@ tagline: Live dashboard + tuner for your fleet of Bitaxe Bitcoin miners
 icon: https://bitaxeballer.com/img/icon-dark.svg
 category: bitcoin
 
-# Semver, matches APP_VERSION in app.py and the Mac/Windows release tags.
-# Bump in lockstep with the desktop release.
-version: "1.13.0"
+# Semver. Usually matches APP_VERSION in app.py and the Mac/Windows tags.
+# Exception: Umbrel-only config hotfixes (port changes, compose tweaks,
+# manifest fixes) can bump the patch component independently — the image
+# is pinned by digest, so the underlying app code stays the same. Next
+# aligned release across all platforms resets this.
+version: "1.13.1"
 
 port: 13700
 description: >-
@@ -58,19 +61,24 @@ support: https://bitaxeballer.com/support.html
 
 # Gallery images — Umbrel app store shows these in the app detail view.
 # Hosted on bitaxeballer.com so we can update without recutting a release.
-# (device-detail.jpg + tune-panel.jpg pending — add back here when they're
-# uploaded to bitaxeballer.com/img/screenshots/.)
 gallery:
   - https://bitaxeballer.com/img/screenshots/home.jpg
+  - https://bitaxeballer.com/img/screenshots/detail.jpg
+  - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
-  v1.13.0 — First Umbrel release! Run Bitaxe Baller as a native Umbrel app
-  on the same home server as your Bitcoin Core, Mempool, and Electrs, with
-  data persisted to ~/umbrel/app-data/bitaxe-baller. Adds a temperature
-  unit switcher (°C ↔ °F) in the dashboard header that propagates to every
-  chart, alert threshold, and tooltip. Public leaderboard remains free —
-  top miner per Bitaxe model wins a free month of Pro every month; first
-  draw 2026-06-30. Full notes: https://bitaxeballer.com/changelog.html
+  v1.13.1 — Umbrel hotfix: moved off port 5050 (collides with
+  passky-server + home-assistant-fusion-ui). New default: tile URL
+  http://umbrel.local:13700 (proxy), direct LAN at :13701. No app code
+  changes vs v1.13.0; just compose/manifest tweaks.
+
+
+  (v1.13.0 — First Umbrel release! Native Umbrel app alongside your
+  Bitcoin Core / Mempool / Electrs; data persists to
+  ~/umbrel/app-data/bitaxe-baller. New temperature unit switcher
+  (°C ↔ °F). Public leaderboard remains free — top miner per Bitaxe
+  model wins a free month of Pro every month; first draw 2026-06-30.
+  Full notes: https://bitaxeballer.com/changelog.html)
 
 # Default credentials block — bitaxe-baller has no login (free tier) or
 # license-key auth (Pro). Umbrel's app_proxy can wrap with auth on the
