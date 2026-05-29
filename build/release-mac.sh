@@ -30,6 +30,14 @@ fi
 ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 cd "$ROOT"
 
+# Activate the venv so `python` resolves (matches build-mac.sh's pattern).
+# build-appcast.py only uses stdlib, but if it later shells out to sign-release.py
+# we want PyNaCl available.
+if [[ -d venv ]]; then
+  # shellcheck disable=SC1091
+  source venv/bin/activate
+fi
+
 DMG="dist/Bitaxe-Baller-Mac.dmg"
 LOCAL_APPCAST="dist/appcast.xml"
 MERGED_APPCAST="dist/appcast-merged.xml"
