@@ -55,12 +55,17 @@ RUN pip install --no-cache-dir --target=/install \
 FROM python:3.12-slim-bookworm AS runtime
 
 # Avahi-utils isn't required — zeroconf is pure Python and does the mDNS work
-# itself. We just need libc + the Python stdlib.
+# itself. tini handles SIGTERM forwarding; gosu drops root → baller in
+# the entrypoint after we fix bind-mount ownership.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tini \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Run as non-root for defense-in-depth. Umbrel typically maps host UIDs anyway.
+# Create the unprivileged user the entrypoint will gosu into. We do NOT
+# `USER baller` here — the entrypoint must start as root so it can chown
+# the bind-mounted /data (which arrives owned by root on Umbrel and many
+# other environments), then it drops to uid 1000 itself.
 RUN useradd --create-home --uid 1000 --shell /bin/bash baller
 WORKDIR /app
 
@@ -70,13 +75,13 @@ COPY --chown=baller:baller app.py /app/app.py
 COPY --chown=baller:baller relay_client.py /app/relay_client.py
 COPY --chown=baller:baller templates /app/templates
 COPY --chown=baller:baller static /app/static
-# version.json is used to override APP_VERSION when present (see app.py
-# _VERSION_OVERRIDE — used by the Mac/Windows build pipeline). We skip the
-# copy in the container because the source-tree APP_VERSION is the truth.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Persistent data lives here. /data is bind-mounted by the compose template.
-RUN mkdir -p /data && chown -R baller:baller /data /app
-USER baller
+# /data is bind-mounted by the compose template. The entrypoint fixes its
+# ownership at startup (Umbrel mounts it owned by root). Source-mode app
+# directory stays owned by baller.
+RUN mkdir -p /data && chown -R baller:baller /app
 
 ENV BITAXE_BALLER_DATA_DIR=/data \
     PORT=5050 \
@@ -87,9 +92,9 @@ ENV BITAXE_BALLER_DATA_DIR=/data \
 
 EXPOSE 5050
 
-# tini handles signals so docker stop is clean (SIGTERM → Flask shutdown
-# without leaving zombie threads behind).
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# tini reaps zombies + forwards SIGTERM; docker-entrypoint.sh chowns /data
+# and gosus down to baller before exec-ing python.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "/app/app.py"]
 
 # Basic health check — Flask responds to /healthz once the polling thread
