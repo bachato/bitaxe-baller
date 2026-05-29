@@ -1,51 +1,37 @@
 # Bitaxe Baller — Umbrel compose template.
 #
+# Design note: we don't use Umbrel's `app_proxy` sidecar because that
+# sidecar talks to the app over the Docker bridge network, and we need
+# `network_mode: host` so the LAN scanner (probing every IP on the host's
+# /24 for Bitaxes) and the mDNS publisher (`bitaxe-baller.local`) work.
+# Host networking is incompatible with the bridge-network DNS name that
+# app_proxy expects. Users reach the app directly at:
+#   http://<umbrel-host>:5050         (any LAN device)
+#   http://bitaxe-baller.local:5050   (via mDNS / Bonjour)
+#   http://umbrel.local:5050          (if Umbrel publishes the same name)
+#
 # Conventions Umbrel expects:
-#   - service id matches the app id ("bitaxe-baller")
 #   - APP_DATA_DIR is provided by Umbrel at install time and points at
 #     ~/umbrel/app-data/bitaxe-baller/data on the host. We bind-mount it
 #     to /data inside the container.
-#   - network_mode: host is required for:
-#       * the LAN scanner (probing every IP on the host's /24 for Bitaxes)
-#       * mDNS publishing of bitaxe-baller.local
-#     This skips the usual Umbrel reverse-proxy routing — users still reach
-#     the app at http://umbrel.local:5050 (or whatever the host IP is).
 #
-# Source of truth: this file is symlinked / copied into the community app
-# store repo at github.com/465media/umbrel-bitaxe-baller-store/bitaxe-baller/
-# Edit here; mirror there before tagging a release.
+# Source of truth: this file is mirrored to the community-store repo at
+# github.com/465media/umbrel-bitaxe-baller-store/bitaxe-baller/. Edit
+# here; sync there with `cp` before tagging a release.
 
 version: "3.7"
 
 services:
-  app_proxy:
-    environment:
-      APP_HOST: 127.0.0.1
-      APP_PORT: 5050
-      PROXY_AUTH_ADD: "false"
-
   bitaxe-baller:
     image: ghcr.io/465media/bitaxe-baller:1.13.0@sha256:426bdb4fcaf5edba230888f19b074c6cb455b41f0a5ed0f830af640ea6b71e3b
     restart: on-failure
     stop_grace_period: 15s
     network_mode: host
     environment:
-      # Where to persist config.json, logs/, and history.db
       BITAXE_BALLER_DATA_DIR: /data
-      # Bind to all interfaces so host networking actually exposes the port
       HOST: 0.0.0.0
-      # Don't conflict with anything on port 80 on the Umbrel host (Umbrel's
-      # own web UI typically lives there). Listen on 5050.
       PORT: 5050
-      # mDNS publishes bitaxe-baller.local — friendly LAN access alongside
-      # whatever umbrel.local serves.
       MDNS_ENABLED: 1
-      # Containers don't have a browser to auto-open.
       BITAXE_BALLER_NO_AUTO_OPEN: 1
     volumes:
       - ${APP_DATA_DIR}/data:/data
-
-# Note: no ports: block — host networking makes Docker port mapping a no-op.
-# The app_proxy service above provides Umbrel's standard auth-wrapped URL
-# at https://<umbrel.local>/bitaxe-baller; direct LAN access works at
-# http://<umbrel.local>:5050 or http://bitaxe-baller.local:5050.

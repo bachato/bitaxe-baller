@@ -52,10 +52,10 @@ support: https://bitaxeballer.com/support.html
 
 # Gallery images — Umbrel app store shows these in the app detail view.
 # Hosted on bitaxeballer.com so we can update without recutting a release.
+# (device-detail.jpg + tune-panel.jpg pending — add back here when they're
+# uploaded to bitaxeballer.com/img/screenshots/.)
 gallery:
   - https://bitaxeballer.com/img/screenshots/home.jpg
-  - https://bitaxeballer.com/img/screenshots/device-detail.jpg
-  - https://bitaxeballer.com/img/screenshots/tune-panel.jpg
 
 releaseNotes: >-
   v1.13.0 — First Umbrel release! Run Bitaxe Baller as a native Umbrel app
