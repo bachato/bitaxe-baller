@@ -1,11 +1,17 @@
 # Umbrel community app manifest for Bitaxe Baller.
 #
 # Spec reference: https://github.com/getumbrel/umbrel-apps/blob/master/.github/UMBREL_APP_YAML_SPEC.md
-# This file is mirrored to the community-store repo at:
-#   github.com/465media/umbrel-bitaxe-baller-store/bitaxe-baller/umbrel-app.yml
+#
+# Umbrel community-store convention: the app `id` MUST be prefixed with the
+# store `id` from umbrel-app-store.yml, and the folder name MUST match the
+# app id. Store id is "bitaxeballer", so:
+#   - app id:     bitaxeballer-app
+#   - folder:     bitaxeballer-app/
+# Mirrored from this file to community-store repo at
+# github.com/465media/umbrel-bitaxe-baller-store/bitaxeballer-app/umbrel-app.yml
 
 manifestVersion: 1
-id: bitaxe-baller
+id: bitaxeballer-app
 disabled: false
 name: Bitaxe Baller
 tagline: Live dashboard + tuner for your fleet of Bitaxe Bitcoin miners

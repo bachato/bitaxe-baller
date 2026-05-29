@@ -1,2 +1,11 @@
-id: "bitaxe-baller-store"
+# Umbrel community app store manifest.
+#
+# `id` is the namespace prefix for every app in this store. Each app's
+# folder name AND that app's umbrel-app.yml `id` field MUST start with
+# this prefix. So the Bitaxe Baller app lives under bitaxeballer-app/
+# and declares `id: bitaxeballer-app`.
+#
+# `name` is the display name shown in the umbrelOS UI when a user adds
+# this store.
+id: "bitaxeballer"
 name: "Bitaxe Baller"
