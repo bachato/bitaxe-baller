@@ -1,11 +1,8 @@
-# Symlink target — kept in sync with /umbrel/umbrel-app.yml in the main repo.
-# When publishing the community store as its own repo, copy this file in
-# place. (We don't symlink across repos.)
+# Umbrel community app manifest for Bitaxe Baller.
 #
-# For now, treat /umbrel/umbrel-app.yml in the main bitaxe-baller repo as
-# the source of truth and re-publish into the community store via:
-#   cp ../bitaxe-baller/umbrel/umbrel-app.yml ./
-#   cp ../bitaxe-baller/umbrel/docker-compose.yml ./
+# Spec reference: https://github.com/getumbrel/umbrel-apps/blob/master/.github/UMBREL_APP_YAML_SPEC.md
+# This file is mirrored to the community-store repo at:
+#   github.com/465media/umbrel-bitaxe-baller-store/bitaxe-baller/umbrel-app.yml
 
 manifestVersion: 1
 id: bitaxe-baller
@@ -15,7 +12,9 @@ tagline: Live dashboard + tuner for your fleet of Bitaxe Bitcoin miners
 icon: https://bitaxeballer.com/img/icon-dark.svg
 category: bitcoin
 
-version: "1.12.0"
+# Semver, matches APP_VERSION in app.py and the Mac/Windows release tags.
+# Bump in lockstep with the desktop release.
+version: "1.13.0"
 
 port: 5050
 description: >-
@@ -26,16 +25,24 @@ description: >-
   can drop into pandas or Excel.
 
 
+  Native UIs on Mac and Windows — and now on Umbrel. Run it on your home
+  server alongside your Bitcoin Core, Mempool, Electrs, etc., and your
+  fleet stays under monitoring 24/7 without leaving your Mac open.
+
+
   Free tier includes the full LAN dashboard, mDNS publishing, network
-  scanner, recommendation engine, tuning controls, fan control, daily CSV
-  logs, the solo block probability widget, the live share feed, and the
-  public leaderboard at bitaxeballer.com/leaderboard — free to enter, top
-  miner per Bitaxe model wins a free month of Pro every month.
+  scanner, recommendation engine, tuning controls, fan control, light/dark
+  theme, daily CSV logs, the solo block probability widget, the live share
+  feed, the local fleet leaderboard, and the public leaderboard at
+  bitaxeballer.com/leaderboard (free to enter — top miner per Bitaxe model
+  wins a free month of Pro every month).
 
 
-  Pro tier ($29/year) unlocks bulk tuning, auto-tune sweeps with safety
-  guardrails, 90 days of SQLite history, Discord alerts, and remote
-  dashboard access via our self-hosted WebSocket relay.
+  Pro tier ($29/year, optional) unlocks bulk tuning across selected
+  devices, auto-tune frequency sweeps with hardware safety guardrails,
+  90 days of persistent local SQLite history, Discord webhook alerts,
+  and remote dashboard access from outside your LAN via the
+  relay.bitaxeballer.com WebSocket router.
 
 developer: 465 Media
 website: https://bitaxeballer.com
@@ -43,20 +50,31 @@ dependencies: []
 repo: https://github.com/465media/bitaxe-baller
 support: https://bitaxeballer.com/support.html
 
+# Gallery images — Umbrel app store shows these in the app detail view.
+# Hosted on bitaxeballer.com so we can update without recutting a release.
 gallery:
   - https://bitaxeballer.com/img/screenshots/home.jpg
   - https://bitaxeballer.com/img/screenshots/device-detail.jpg
   - https://bitaxeballer.com/img/screenshots/tune-panel.jpg
 
 releaseNotes: >-
-  v1.12.0 — Public leaderboard goes free for all users. Top miner in each
-  Bitaxe model wins a free month of Pro every month; places 2-5 get a 20%
-  off coupon. First public draw: 2026-06-30. Full notes:
-  https://bitaxeballer.com/changelog.html
+  v1.13.0 — First Umbrel release! Run Bitaxe Baller as a native Umbrel app
+  on the same home server as your Bitcoin Core, Mempool, and Electrs, with
+  data persisted to ~/umbrel/app-data/bitaxe-baller. Adds a temperature
+  unit switcher (°C ↔ °F) in the dashboard header that propagates to every
+  chart, alert threshold, and tooltip. Public leaderboard remains free —
+  top miner per Bitaxe model wins a free month of Pro every month; first
+  draw 2026-06-30. Full notes: https://bitaxeballer.com/changelog.html
 
+# Default credentials block — bitaxe-baller has no login (free tier) or
+# license-key auth (Pro). Umbrel's app_proxy can wrap with auth on the
+# /bitaxe-baller URL, OR users can hit it directly at port 5050.
 defaultUsername: ""
 defaultPassword: ""
+
+# Path prefix when accessed through Umbrel's reverse proxy.
 path: ""
 
+# Show the open-source MIT badge in the app store.
 submitter: 465 Media
 submission: https://github.com/465media/bitaxe-baller

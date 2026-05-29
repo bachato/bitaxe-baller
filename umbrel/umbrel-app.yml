@@ -14,7 +14,7 @@ category: bitcoin
 
 # Semver, matches APP_VERSION in app.py and the Mac/Windows release tags.
 # Bump in lockstep with the desktop release.
-version: "1.12.0"
+version: "1.13.0"
 
 port: 5050
 description: >-
@@ -58,11 +58,13 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/tune-panel.jpg
 
 releaseNotes: >-
-  v1.12.0 — Public leaderboard goes free for all users. Top miner in each
-  Bitaxe model wins a free month of Pro every month; places 2-5 get a 20%
-  off coupon. Verified email + 24h activity required to be prize-eligible.
-  First public draw: 2026-06-30. See full release notes:
-  https://bitaxeballer.com/changelog.html
+  v1.13.0 — First Umbrel release! Run Bitaxe Baller as a native Umbrel app
+  on the same home server as your Bitcoin Core, Mempool, and Electrs, with
+  data persisted to ~/umbrel/app-data/bitaxe-baller. Adds a temperature
+  unit switcher (°C ↔ °F) in the dashboard header that propagates to every
+  chart, alert threshold, and tooltip. Public leaderboard remains free —
+  top miner per Bitaxe model wins a free month of Pro every month; first
+  draw 2026-06-30. Full notes: https://bitaxeballer.com/changelog.html
 
 # Default credentials block — bitaxe-baller has no login (free tier) or
 # license-key auth (Pro). Umbrel's app_proxy can wrap with auth on the

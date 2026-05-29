@@ -15,7 +15,7 @@ v1.11 launched the leaderboard with submission gated behind a Pro subscription. 
 
 ### Monthly prize draw
 
-Runs the **1st of each month at 00:00 UTC**. Per Bitaxe model with ≥3 eligible entries:
+Runs the **last day of each month at 23:00 UTC**. Per Bitaxe model with ≥3 eligible entries:
 
 - **#1** receives a real Pro license key with `tier='pro-monthly'` and a 30-day `expires_at`. Paste it into the Pro modal and your subscription unlocks for 30 days; if you already have Pro, your existing renewal extends by 30 days.
 - **#2 through #5** receive a one-time Stripe promotion code for **20% off Pro**, valid for 60 days, redeemable at `bitaxeballer.com/pro`.
