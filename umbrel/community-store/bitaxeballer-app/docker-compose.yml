@@ -1,25 +1,31 @@
 # Bitaxe Baller — Umbrel compose template.
 #
-# Networking model (why it looks the way it does)
-# ------------------------------------------------
+# Networking model
+# ----------------
 # We need `network_mode: host` for the bitaxe-baller container so the
 # LAN scanner can probe every IP on the host's /24, and so the mDNS
 # publisher can announce `bitaxe-baller.local`. Both break under bridge
 # networking.
 #
-# But Umbrel's `app_proxy` runs on the bridge network and tries to talk
-# to the app over Docker DNS — which doesn't work when the app is on
-# host networking. The fix (cribbed from imlenti's MinerWatch compose):
-# point app_proxy at `host.docker.internal:<host-port>` via extra_hosts.
+# Umbrel's `app_proxy` runs on the bridge network and tries to talk to
+# the app over Docker DNS — which doesn't work when the app is on host
+# networking. The fix (cribbed from imlenti/minerwatch's compose): point
+# app_proxy at `host.docker.internal:<host-port>` via extra_hosts.
 #
-# Port routing:
-#   * manifest port (umbrel-app.yml `port: 5050`) → app_proxy publishes
-#     on host:5050, which is the Umbrel tile URL `<umbrel>:5050`
-#   * the bitaxe-baller container binds host:5051 (different port to
-#     avoid contention with the proxy on 5050)
-#   * proxy forwards 5050 → host.docker.internal:5051 → web on host net
-#   * direct LAN access at `<umbrel>:5051` also works (host networking)
-#   * mDNS publishes `bitaxe-baller.local:5051`
+# Port routing
+# ------------
+# Port 5050 (our usual native LAN default) collides with two existing
+# official Umbrel apps (passky-server, home-assistant-fusion-ui). We use
+# 13700 / 13701 instead — both unused in the Umbrel app registry, and
+# 13700 is a memorable nod to the BM1370 chip in the Bitaxe Gamma.
+#
+#   * manifest port = 13700 (in umbrel-app.yml) — Umbrel binds the proxy
+#     here on the host, so the Umbrel tile URL is <umbrel-host>:13700
+#   * bitaxe-baller container binds host:13701 (different port to avoid
+#     contention with the proxy on 13700)
+#   * proxy forwards 13700 → host.docker.internal:13701 → web on host net
+#   * direct LAN access at <umbrel-host>:13701 also works
+#   * mDNS publishes `bitaxe-baller.local:13701`
 #
 # Source of truth: mirrored to community-store repo at
 # github.com/465media/umbrel-bitaxe-baller-store/bitaxeballer-app/.
@@ -30,7 +36,7 @@ services:
   app_proxy:
     environment:
       APP_HOST: host.docker.internal
-      APP_PORT: 5051
+      APP_PORT: 13701
       PROXY_AUTH_ADD: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -43,7 +49,7 @@ services:
     environment:
       BITAXE_BALLER_DATA_DIR: /data
       HOST: 0.0.0.0
-      PORT: 5051
+      PORT: 13701
       MDNS_ENABLED: 1
       BITAXE_BALLER_NO_AUTO_OPEN: 1
     volumes:

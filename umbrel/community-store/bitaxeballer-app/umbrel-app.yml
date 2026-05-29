@@ -22,7 +22,7 @@ category: bitcoin
 # Bump in lockstep with the desktop release.
 version: "1.13.0"
 
-port: 5050
+port: 13700
 description: >-
   Bitaxe Baller is the dashboard + tuner that hobbyist Bitaxe miners actually
   want. Auto-discovers every Bitaxe on your LAN, polls each one every 5
