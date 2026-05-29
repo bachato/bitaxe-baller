@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.13.1"
+version: "1.13.2"
 
 port: 13700
 description: >-
@@ -67,13 +67,15 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
-  v1.13.1 — Umbrel hotfix: moved off port 5050 (collides with
-  passky-server + home-assistant-fusion-ui). New default: tile URL
-  http://umbrel.local:13700 (proxy), direct LAN at :13701. No app code
-  changes vs v1.13.0; just compose/manifest tweaks.
+  v1.13.2 — Umbrel hotfix #2: fixes the "Permission denied: /data/logs"
+  crash loop on first install. Image entrypoint now starts as root,
+  chowns the bind-mounted /data dir to the unprivileged user, then drops
+  privileges via gosu before launching the app (the standard Umbrel
+  pattern). No app code changes — runtime user is still uid 1000.
 
 
-  (v1.13.0 — First Umbrel release! Native Umbrel app alongside your
+  (v1.13.1 — moved off port 5050 conflict; now on 13700 proxy + 13701
+  direct. v1.13.0 — first Umbrel release; native Umbrel app alongside
   Bitcoin Core / Mempool / Electrs; data persists to
   ~/umbrel/app-data/bitaxe-baller. New temperature unit switcher
   (°C ↔ °F). Public leaderboard remains free — top miner per Bitaxe
