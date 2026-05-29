@@ -78,8 +78,16 @@ if [[ "$ok" != "y" && "$ok" != "Y" ]]; then
   exit 1
 fi
 
+# Rename to the canonical filename. We can't use the `#label` syntax in
+# gh release upload — that sets a display label, NOT the uploaded filename.
+# The asset's stored name is always the local file's basename. (Learned the
+# hard way on the v1.13.0 release — the misnamed appcast-merged.xml left
+# /latest/download/appcast.xml serving the Windows-only original.)
+FINAL_APPCAST="dist/appcast.xml"
+cp "$MERGED_APPCAST" "$FINAL_APPCAST"
+
 echo "==> uploading to release $TAG"
-gh release upload "$TAG" "$DMG" "$MERGED_APPCAST"#appcast.xml --clobber
+gh release upload "$TAG" "$DMG" "$FINAL_APPCAST" --clobber
 
 echo
 echo "✓ Release $TAG updated. Verify at:"
