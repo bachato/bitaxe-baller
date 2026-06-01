@@ -80,9 +80,20 @@ def _update(**kwargs: Any) -> None:
         _state.update(kwargs)
 
 
-def start(license_key: str, *, relay_url: str, app_port: int, app_version: str) -> None:
+def start(
+    license_key: str,
+    *,
+    relay_url: str,
+    app_port: int,
+    app_version: str,
+    install_uuid: str = "",
+) -> None:
     """Start the connector. Idempotent — second call is a no-op if already
-    running. Returns immediately; connection happens on a background thread."""
+    running. Returns immediately; connection happens on a background thread.
+
+    iOS v1.1: pass `install_uuid` so the relay can dual-index this app
+    connection (by license_key for legacy session clients, by install_uuid
+    for paired iOS clients). Empty string keeps the legacy behavior."""
     global _thread, _stop_event
     if is_running():
         return
@@ -98,7 +109,7 @@ def start(license_key: str, *, relay_url: str, app_port: int, app_version: str) 
     )
     _thread = threading.Thread(
         target=_run_thread,
-        args=(license_key, relay_url, app_port, app_version, _stop_event),
+        args=(license_key, relay_url, app_port, app_version, install_uuid, _stop_event),
         name="relay-client",
         daemon=True,
     )
@@ -126,10 +137,11 @@ def _run_thread(
     relay_url: str,
     app_port: int,
     app_version: str,
+    install_uuid: str,
     stop_event: threading.Event,
 ) -> None:
     try:
-        asyncio.run(_main_loop(license_key, relay_url, app_port, app_version, stop_event))
+        asyncio.run(_main_loop(license_key, relay_url, app_port, app_version, install_uuid, stop_event))
     except Exception:
         log.exception("relay client thread crashed")
         _update(connected=False, last_error="Connector crashed; check logs.")
@@ -140,6 +152,7 @@ async def _main_loop(
     relay_url: str,
     app_port: int,
     app_version: str,
+    install_uuid: str,
     stop_event: threading.Event,
 ) -> None:
     """Connect → serve → reconnect. Exponential backoff capped at 60s.
@@ -149,7 +162,7 @@ async def _main_loop(
         _update(last_connect_attempt=time.time())
         try:
             await _connect_and_serve(
-                license_key, relay_url, app_port, app_version, stop_event
+                license_key, relay_url, app_port, app_version, install_uuid, stop_event
             )
             # Clean exit from serve loop = stop requested or server closed; reset backoff.
             backoff = 1.0
@@ -178,10 +191,17 @@ async def _connect_and_serve(
     relay_url: str,
     app_port: int,
     app_version: str,
+    install_uuid: str,
     stop_event: threading.Event,
 ) -> None:
     """One WS lifecycle. Raises on connect failure, returns on clean close."""
     url = relay_url.rstrip("/") + "/ws/app"
+    # iOS v1.1: send install_uuid as a query param so the relay can
+    # dual-index this connection. Falls back gracefully if the relay is
+    # an older version that ignores unknown query params (FastAPI does).
+    if install_uuid:
+        from urllib.parse import quote
+        url = url + "?install_uuid=" + quote(install_uuid, safe="")
     headers = [("Authorization", f"Bearer {license_key}")]
     log.info("relay connecting url=%s", url)
     ssl_ctx = None

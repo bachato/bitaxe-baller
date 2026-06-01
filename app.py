@@ -1806,6 +1806,7 @@ def _maybe_start_relay_client(app_port: int) -> None:
             relay_url=rc["relay_url"],
             app_port=app_port,
             app_version=APP_VERSION,
+            install_uuid=_install_uuid(),
         )
     except Exception as e:
         print(f"[relay] could not start connector: {type(e).__name__}: {e}", file=sys.stderr)
@@ -1858,6 +1859,7 @@ def api_remote_enable():
         relay_url=relay_url,
         app_port=PORT,
         app_version=APP_VERSION,
+        install_uuid=_install_uuid(),
     )
     return jsonify({"ok": True, "status": relay_client.get_status()})
 
@@ -2034,6 +2036,95 @@ def api_leaderboard_save():
         return jsonify({"error": "Email is required for free-tier leaderboard submission (used only to deliver prizes if you win a monthly contest)."}), 400
     _leaderboard_save_cfg(enabled=enabled, display_name=display_name, email=email)
     return jsonify({"ok": True, "configured": _leaderboard_cfg()})
+
+
+# ============================================================
+# iOS v1.1 pairing — desktop proxy endpoints
+# ============================================================
+# The Pair iPhone UI in the Pro modal calls these to generate + manage
+# pair tokens against the site server's /api/relay/* endpoints. License
+# key stays server-side; the browser never sees it.
+_PAIR_API_BASE = os.environ.get("BITAXE_BALLER_PAIR_API_BASE", "https://bitaxeballer.com").rstrip("/")
+_PAIR_API_TIMEOUT_S = 8.0
+
+
+def _pair_credentials():
+    """Returns (install_uuid, license_key_or_empty) for the current install."""
+    uuid_val = _install_uuid()
+    lic = _get_license() or {}
+    key = (lic.get("key") or "").strip() if is_pro_active() else ""
+    return uuid_val, key
+
+
+@app.route("/api/relay/pair-init", methods=["POST"])
+def api_relay_pair_init():
+    """Generates a short-lived pair token via the site server. UI displays
+    the token to the user (text or QR), they enter it in their iOS app."""
+    uuid_val, key = _pair_credentials()
+    if not uuid_val:
+        return jsonify({"error": "No install_uuid configured."}), 400
+    body = {"install_uuid": uuid_val}
+    if key:
+        body["license_key"] = key
+    # Optional friendly label for the desktop ("Nathan's Mac mini").
+    machine_label = (request.get_json(silent=True) or {}).get("display_label")
+    if machine_label and isinstance(machine_label, str):
+        body["display_label"] = machine_label.strip()[:80]
+    try:
+        r = requests.post(f"{_PAIR_API_BASE}/api/relay/pair-init", json=body, timeout=_PAIR_API_TIMEOUT_S)
+    except requests.RequestException as e:
+        return jsonify({"error": f"Pair server unavailable: {type(e).__name__}"}), 503
+    try:
+        payload = r.json()
+    except ValueError:
+        return jsonify({"error": f"Pair server returned HTTP {r.status_code}"}), 502
+    return jsonify(payload), r.status_code
+
+
+@app.route("/api/relay/devices", methods=["GET"])
+def api_relay_devices():
+    """Lists currently-paired iOS/Android devices for this install."""
+    uuid_val, _ = _pair_credentials()
+    if not uuid_val:
+        return jsonify({"devices": []})
+    try:
+        r = requests.get(
+            f"{_PAIR_API_BASE}/api/relay/devices",
+            params={"install_uuid": uuid_val},
+            timeout=_PAIR_API_TIMEOUT_S,
+        )
+    except requests.RequestException as e:
+        return jsonify({"error": f"Pair server unavailable: {type(e).__name__}"}), 503
+    try:
+        payload = r.json()
+    except ValueError:
+        return jsonify({"error": f"Pair server returned HTTP {r.status_code}"}), 502
+    return jsonify(payload), r.status_code
+
+
+@app.route("/api/relay/device-revoke", methods=["POST"])
+def api_relay_device_revoke():
+    """Revokes a paired iOS/Android device."""
+    uuid_val, _ = _pair_credentials()
+    if not uuid_val:
+        return jsonify({"error": "No install_uuid configured."}), 400
+    body = request.get_json(silent=True) or {}
+    device_id = str(body.get("device_token_id") or "").strip()
+    if not device_id:
+        return jsonify({"error": "device_token_id required"}), 400
+    try:
+        r = requests.post(
+            f"{_PAIR_API_BASE}/api/relay/device-revoke",
+            json={"install_uuid": uuid_val, "device_token_id": device_id},
+            timeout=_PAIR_API_TIMEOUT_S,
+        )
+    except requests.RequestException as e:
+        return jsonify({"error": f"Pair server unavailable: {type(e).__name__}"}), 503
+    try:
+        payload = r.json()
+    except ValueError:
+        return jsonify({"error": f"Pair server returned HTTP {r.status_code}"}), 502
+    return jsonify(payload), r.status_code
 
 
 def _is_private_v4(ip):

@@ -589,6 +589,7 @@ async function _renderProModal() {
           ${status.expires_at ? `<dt>Renews</dt><dd>${escapeHtml(new Date(status.expires_at).toLocaleDateString())}</dd>` : ''}
         </dl>
         ${remote ? _renderRemoteAccessSection(remote, isDev) : ''}
+        ${_renderPairedDevicesSection(true)}
         ${leaderboard ? _renderLeaderboardSection(leaderboard, isDev) : ''}
         ${isDev ? '' : `
           <p class="pro-fineprint">Deactivating frees this slot so you can move your license to another machine. Your subscription stays active.</p>
@@ -604,6 +605,8 @@ async function _renderProModal() {
     if (remoteToggle) remoteToggle.addEventListener('click', _handleRemoteToggle);
     const lbForm = document.getElementById('leaderboard-form');
     if (lbForm) lbForm.addEventListener('submit', _handleLeaderboardSave);
+    const pairBtn = document.getElementById('pair-new-btn');
+    if (pairBtn) pairBtn.addEventListener('click', _handlePairNewClick);
   } else {
     // Free-tier branch: render activation form + the leaderboard opt-in
     // (which works for free users too as of v1.12).
@@ -620,11 +623,14 @@ async function _renderProModal() {
         </div>
         <div class="pro-feedback" id="pro-feedback"></div>
       </form>
+      ${_renderPairedDevicesSection(false)}
       ${leaderboard ? _renderLeaderboardSection(leaderboard, false) : ''}
     `;
     document.getElementById('pro-activate-form').addEventListener('submit', _handleActivate);
     const lbForm = document.getElementById('leaderboard-form');
     if (lbForm) lbForm.addEventListener('submit', _handleLeaderboardSave);
+    const pairBtn = document.getElementById('pair-new-btn');
+    if (pairBtn) pairBtn.addEventListener('click', _handlePairNewClick);
   }
 }
 
@@ -658,6 +664,80 @@ function _renderRemoteAccessSection(remote, isDev) {
       </div>
     </section>
   `;
+}
+
+// ----- Pair iPhone / Android section (iOS v1.1) -----
+// Renders inside the Pro modal for both free + Pro users. Generates a
+// short-lived pair code via the desktop's /api/relay/pair-init proxy
+// (which forwards to bitaxeballer.com). User types the code into their
+// iOS/Android app's pairing screen. Free users get a 1-miner stream on
+// iOS; Pro users get the full fleet. Tier enforced by the relay.
+function _renderPairedDevicesSection(isPro) {
+  return `
+    <section class="remote-section pair-section">
+      <div class="remote-head">
+        <div class="remote-title">Pair iPhone or Android</div>
+      </div>
+      <p class="remote-blurb">
+        View your fleet on your phone. ${isPro ? 'Pro shows every miner.' : 'Free shows your first miner; upgrade to Pro for the full fleet.'} Pairing is one-time per device.
+      </p>
+      <div id="pair-token-display" hidden style="margin: 12px 0;">
+        <div style="font-size:13px;color:var(--dim);margin-bottom:6px;">Pair code:</div>
+        <code id="pair-token-text" style="display:block;font-family:'JetBrains Mono',monospace;font-size:18px;letter-spacing:1px;background:var(--bg-2);padding:10px 14px;border-radius:6px;user-select:all;word-break:break-all;"></code>
+        <div style="font-size:12px;color:var(--dim);margin-top:6px;">
+          Type this into the Bitaxe Baller app on your phone within
+          <span id="pair-countdown">60</span> seconds.
+        </div>
+      </div>
+      <div class="pro-actions">
+        <button class="primary" id="pair-new-btn">Pair a new device</button>
+      </div>
+    </section>
+  `;
+}
+
+let _pairCountdownTimer = null;
+
+async function _handlePairNewClick() {
+  const btn = document.getElementById('pair-new-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = 'Generating code…';
+  try {
+    const resp = await api('/api/relay/pair-init', 'POST', {});
+    const token = resp.pair_token || '';
+    const expiresIn = resp.expires_in || 60;
+    if (!token) throw new Error('No pair token returned');
+
+    const display = document.getElementById('pair-token-display');
+    const text = document.getElementById('pair-token-text');
+    const countdown = document.getElementById('pair-countdown');
+    if (display && text) {
+      text.textContent = token;
+      display.hidden = false;
+    }
+
+    btn.textContent = 'Generate a new code';
+    btn.disabled = false;
+
+    if (_pairCountdownTimer) clearInterval(_pairCountdownTimer);
+    let remaining = expiresIn;
+    if (countdown) countdown.textContent = String(remaining);
+    _pairCountdownTimer = setInterval(() => {
+      remaining -= 1;
+      if (countdown) countdown.textContent = String(Math.max(0, remaining));
+      if (remaining <= 0) {
+        clearInterval(_pairCountdownTimer);
+        _pairCountdownTimer = null;
+        const d = document.getElementById('pair-token-display');
+        if (d) d.hidden = true;
+      }
+    }, 1000);
+  } catch (e) {
+    toast('Could not generate pair code: ' + (e.message || e), 'error');
+    btn.disabled = false;
+    btn.textContent = 'Pair a new device';
+  }
 }
 
 async function _handleRemoteToggle(ev) {
