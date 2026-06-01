@@ -31,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 import config
+import device_lookup
 import licensing
 import protocol
 import tokens
@@ -134,19 +135,60 @@ def _extract_bearer(request_headers: dict, query_param: Optional[str]) -> Option
 
 
 @app.websocket("/ws/app")
-async def ws_app(ws: WebSocket, key: Optional[str] = None, activation_id: Optional[str] = None):
-    """App-side socket. Auth = license key (Authorization header or `?key=`).
+async def ws_app(
+    ws: WebSocket,
+    key: Optional[str] = None,
+    activation_id: Optional[str] = None,
+    install_uuid: Optional[str] = None,
+):
+    """App-side socket.
 
-    The relay validates the key against LS once at connect time. We do not
-    keep a long-lived poll going for revocation in v0 — accepted trade-off
-    for a 1-hour-ish lag on revocation, fine for launch.
+    Auth paths:
+      - Pro (existing): license key via Authorization Bearer or `?key=`.
+        Validates against LS once at connect time. install_uuid optional;
+        when present, the connection is dual-indexed so paired iOS devices
+        can find it.
+      - Free (new, requires config.PAIRING_ENABLED): `?install_uuid=...`
+        only. No license validation. Tier='free'. Paired iOS devices find
+        the connection by install_uuid; response stripping limits them to
+        1 device's data.
     """
     headers = {k.decode().lower(): v.decode() for k, v in ws.scope.get("headers", [])}
     license_key = _extract_bearer(headers, key)
-    if not license_key:
+    install_uuid = (install_uuid or "").strip()
+
+    # No credentials at all → reject.
+    if not license_key and not install_uuid:
         await ws.close(code=4401)
         return
 
+    # Free-tier path: install_uuid without a license. Gated on the feature
+    # flag so existing Pro-only relay behavior is preserved until rollout.
+    if not license_key:
+        if not config.PAIRING_ENABLED:
+            await ws.accept()
+            await ws.close(code=4401, reason="Pairing not enabled.")
+            return
+        if not _is_valid_install_uuid(install_uuid):
+            await ws.accept()
+            await ws.close(code=4401, reason="install_uuid format invalid.")
+            return
+        await ws.accept()
+        conn = AppConn(license_key="", ws=ws, tier="free", install_uuid=install_uuid)
+        await registry.register_app(conn)
+        log.info("app connected (free) install_uuid=%s", _redact(install_uuid))
+        try:
+            await _app_read_loop(conn)
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            log.exception("app loop error install_uuid=%s", _redact(install_uuid))
+        finally:
+            await registry.unregister_app(conn)
+            log.info("app disconnected (free) install_uuid=%s", _redact(install_uuid))
+        return
+
+    # Pro path: validate license.
     try:
         info = licensing.validate(license_key, activation_id)
     except licensing.LicenseError as e:
@@ -156,8 +198,17 @@ async def ws_app(ws: WebSocket, key: Optional[str] = None, activation_id: Option
         return
 
     await ws.accept()
-    conn = await registry.register_app(info.key, ws)
-    log.info("app connected license=%s email=%s", _redact(info.key), info.email)
+    conn = AppConn(
+        license_key=info.key,
+        ws=ws,
+        tier="pro",
+        install_uuid=install_uuid if _is_valid_install_uuid(install_uuid) else "",
+    )
+    await registry.register_app(conn)
+    log.info(
+        "app connected license=%s email=%s install_uuid=%s",
+        _redact(info.key), info.email, _redact(conn.install_uuid) or "-",
+    )
 
     try:
         await _app_read_loop(conn)
@@ -168,6 +219,13 @@ async def ws_app(ws: WebSocket, key: Optional[str] = None, activation_id: Option
     finally:
         await registry.unregister_app(conn)
         log.info("app disconnected license=%s", _redact(info.key))
+
+
+def _is_valid_install_uuid(s: str) -> bool:
+    """Lightweight format check — same shape the leaderboard endpoint
+    accepts: hex with dashes, 20+ chars (full UUIDs are 32 hex + 4 dashes = 36)."""
+    import re
+    return bool(re.fullmatch(r"[0-9a-fA-F-]{20,}", s or ""))
 
 
 async def _app_read_loop(conn: AppConn) -> None:
@@ -202,8 +260,17 @@ async def _app_read_loop(conn: AppConn) -> None:
 
 @app.websocket("/ws/client")
 async def ws_client(ws: WebSocket, token: Optional[str] = None):
-    """Client-side socket (browser, mobile). Auth = session token in
-    `?token=...` or Authorization header.
+    """Client-side socket (browser, mobile).
+
+    Auth paths:
+      - Session token (existing): minted by /login, signed JWT-shaped
+        `<payload>.<sig>`. Verifies against tokens.verify() → license_key
+        → routes to AppConn keyed by license.
+      - Device token (new, iOS pairing): opaque base64url string from
+        /api/relay/pair-redeem. No dots. Validated by calling the site
+        server's /api/relay/device-info → install_uuid + tier_at_pair →
+        routes to AppConn keyed by install_uuid. Tier-limit (1 device
+        max for free) applied to response bodies before forwarding.
     """
     headers = {k.decode().lower(): v.decode() for k, v in ws.scope.get("headers", [])}
     bearer = _extract_bearer(headers, token)
@@ -211,15 +278,40 @@ async def ws_client(ws: WebSocket, token: Optional[str] = None):
         await ws.close(code=4401)
         return
 
-    try:
-        license_key = tokens.verify(bearer)
-    except tokens.TokenError as e:
-        await ws.accept()
-        await ws.close(code=4401, reason=str(e)[:120])
-        return
+    # Shape disambiguation: session tokens have a dot separating payload
+    # and signature; device tokens are 32-char base64url with no dots.
+    is_session_token = "." in bearer
+
+    route_license_key: Optional[str] = None
+    route_install_uuid: Optional[str] = None
+    route_tier: str = "pro"
+    log_label: str = ""
+
+    if is_session_token:
+        try:
+            route_license_key = tokens.verify(bearer)
+        except tokens.TokenError as e:
+            await ws.accept()
+            await ws.close(code=4401, reason=str(e)[:120])
+            return
+        log_label = f"license={_redact(route_license_key)}"
+    else:
+        if not config.PAIRING_ENABLED:
+            await ws.accept()
+            await ws.close(code=4401, reason="Pairing not enabled.")
+            return
+        try:
+            info = device_lookup.lookup(bearer)
+        except device_lookup.DeviceLookupError as e:
+            await ws.accept()
+            await ws.close(code=4401, reason=str(e)[:120])
+            return
+        route_install_uuid = info.install_uuid_paired
+        route_tier = info.tier_at_pair
+        log_label = f"device=ios install_uuid={_redact(route_install_uuid)} tier={route_tier}"
 
     await ws.accept()
-    log.info("client connected license=%s", _redact(license_key))
+    log.info("client connected %s", log_label)
 
     try:
         while True:
@@ -233,16 +325,28 @@ async def ws_client(ws: WebSocket, token: Optional[str] = None):
                 msg = json.loads(raw)
             except ValueError:
                 continue
-            await _handle_client_request(ws, license_key, msg)
+            await _handle_client_request(
+                ws,
+                license_key=route_license_key,
+                install_uuid=route_install_uuid,
+                client_tier=route_tier,
+                msg=msg,
+            )
     except WebSocketDisconnect:
         pass
     except Exception:
-        log.exception("client loop error license=%s", _redact(license_key))
+        log.exception("client loop error %s", log_label)
     finally:
-        log.info("client disconnected license=%s", _redact(license_key))
+        log.info("client disconnected %s", log_label)
 
 
-async def _handle_client_request(client_ws: WebSocket, license_key: str, msg: dict) -> None:
+async def _handle_client_request(
+    client_ws: WebSocket,
+    license_key: Optional[str],
+    install_uuid: Optional[str],
+    client_tier: str,
+    msg: dict,
+) -> None:
     if isinstance(msg, dict) and msg.get("type") == "ping":
         await client_ws.send_text(json.dumps({"type": "pong"}))
         return
@@ -260,12 +364,32 @@ async def _handle_client_request(client_ws: WebSocket, license_key: str, msg: di
         ))
         return
 
-    conn = registry.get_app(license_key)
+    # Free-tier paired iOS clients are read-only — reject mutations.
+    if client_tier == "free" and method != "GET":
+        await client_ws.send_text(json.dumps(
+            protocol.make_error_response(client_id or "", 403, "Free tier is read-only on the paired companion app.")
+        ))
+        return
+
+    # Route lookup: session-token clients use license_key; paired iOS
+    # clients use install_uuid. The desktop AppConn is dual-indexed.
+    conn: Optional[AppConn] = None
+    if license_key:
+        conn = registry.get_app_by_license(license_key)
+    elif install_uuid:
+        conn = registry.get_app_by_install_uuid(install_uuid)
+
     if conn is None:
         await client_ws.send_text(json.dumps(
             protocol.make_error_response(client_id or "", 502, "App is not connected to the relay.")
         ))
         return
+
+    # Effective tier for stripping = max(client_tier, conn.tier). If a Pro
+    # desktop paired an iPhone but the device_token was issued back when
+    # the desktop was free (tier_at_pair='free'), we still respect the
+    # snapshot. Worst case: user re-pairs to refresh tier.
+    effective_tier = "free" if (client_tier == "free" or conn.tier == "free") else "pro"
 
     req_id = protocol.new_request_id()
     loop = asyncio.get_running_loop()
@@ -302,7 +426,42 @@ async def _handle_client_request(client_ws: WebSocket, license_key: str, msg: di
     out = dict(response_msg)
     out["type"] = "response"
     out["id"] = client_id or ""
+
+    # Free-tier paired iOS clients: strip device-list responses to a
+    # single device. Pro paths skip this entirely. The desktop app's
+    # /api/devices returns {"devices": [...], ...} — we keep [0] only.
+    if effective_tier == "free":
+        out = _apply_free_tier_response_filter(method, path, out)
+
     await client_ws.send_text(json.dumps(out))
+
+
+def _apply_free_tier_response_filter(method: str, path: str, response_msg: dict) -> dict:
+    """Trim response bodies so free-tier paired clients see at most one
+    device's data. Defensive: keeps the response shape intact if anything
+    unexpected appears, so a future schema change doesn't break free users.
+    """
+    if method != "GET":
+        return response_msg
+    body = response_msg.get("body")
+    if not isinstance(body, dict):
+        return response_msg
+
+    if path == "/api/devices":
+        devices = body.get("devices")
+        if isinstance(devices, list) and len(devices) > 1:
+            new_body = dict(body)
+            new_body["devices"] = devices[:1]
+            response_msg = dict(response_msg)
+            response_msg["body"] = new_body
+        return response_msg
+
+    # /api/device/<ip> is reachable only via /api/devices first, so a
+    # free-tier client only ever knows about device[0]'s IP. We don't
+    # need to gate it further — if someone constructs a request for a
+    # different IP out-of-band, the response is fine to forward; they
+    # already know the IP exists.
+    return response_msg
 
 
 async def _send_json(conn: AppConn, payload: dict) -> None:
@@ -321,8 +480,8 @@ async def _idle_disconnect_loop() -> None:
         for conn in registry.all_apps():
             if conn.idle_seconds() > config.IDLE_DISCONNECT_S:
                 log.info(
-                    "app idle disconnect license=%s idle_s=%d",
-                    _redact(conn.license_key),
+                    "app idle disconnect id=%s idle_s=%d",
+                    _redact(conn.license_key) or _redact(conn.install_uuid) or "?",
                     int(conn.idle_seconds()),
                 )
                 with contextlib.suppress(Exception):
