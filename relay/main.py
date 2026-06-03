@@ -440,27 +440,40 @@ def _apply_free_tier_response_filter(method: str, path: str, response_msg: dict)
     """Trim response bodies so free-tier paired clients see at most one
     device's data. Defensive: keeps the response shape intact if anything
     unexpected appears, so a future schema change doesn't break free users.
+
+    /api/devices on the desktop returns a JSON LIST of device summaries
+    (not a wrapper dict). The earlier version of this code assumed a dict
+    shape and would AttributeError on every free-tier iOS request. Now
+    handles both: list-of-summaries (current shape) AND dict with
+    "devices" key (defensive for any future wrapper).
     """
-    if method != "GET":
-        return response_msg
-    body = response_msg.get("body")
-    if not isinstance(body, dict):
+    if method != "GET" or path != "/api/devices":
         return response_msg
 
-    if path == "/api/devices":
+    body = response_msg.get("body")
+
+    # Current shape: bare list of device summaries.
+    if isinstance(body, list):
+        if len(body) > 1:
+            response_msg = dict(response_msg)
+            response_msg["body"] = body[:1]
+        return response_msg
+
+    # Defensive: wrapper dict shape, in case the desktop ever changes to
+    # {"devices": [...], ...}. Trim the devices key only; leave any other
+    # summary fields intact.
+    if isinstance(body, dict):
         devices = body.get("devices")
         if isinstance(devices, list) and len(devices) > 1:
             new_body = dict(body)
             new_body["devices"] = devices[:1]
             response_msg = dict(response_msg)
             response_msg["body"] = new_body
-        return response_msg
 
-    # /api/device/<ip> is reachable only via /api/devices first, so a
-    # free-tier client only ever knows about device[0]'s IP. We don't
-    # need to gate it further — if someone constructs a request for a
-    # different IP out-of-band, the response is fine to forward; they
-    # already know the IP exists.
+    # /api/device/<ip> isn't filtered — a free-tier client only ever knows
+    # about device[0]'s IP from /api/devices, so they can't request the
+    # others by accident. If they do construct a request out-of-band, we
+    # let it through; the relay doesn't pre-resolve which IP is "first".
     return response_msg
 
 

@@ -1,0 +1,26 @@
+[Unit]
+Description=Bitaxe Baller demo desktop — perpetual relay client for App Review testing
+After=network-online.target bitaxe-baller-relay.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bitaxeballer
+WorkingDirectory=/opt/bitaxe-baller-demo
+EnvironmentFile=/opt/bitaxe-baller-demo/.env
+ExecStart=/opt/bitaxe-baller-demo/venv/bin/python /opt/bitaxe-baller-demo/demo_desktop.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening — this process only opens an outbound WebSocket; no need to
+# read/write outside its own working directory.
+ProtectSystem=strict
+ReadWritePaths=/opt/bitaxe-baller-demo
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
