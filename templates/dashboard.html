@@ -752,6 +752,49 @@ function renderFleetLeaderboard(devices) {
   }
 }
 
+// Chain id → human-readable label for the pool-group section header.
+// Kept in sync with _CHAIN_PATTERNS in app.py.
+const CHAIN_DISPLAY = {
+  btc: 'Bitcoin',
+  bch: 'Bitcoin Cash',
+  bsv: 'Bitcoin SV',
+  xec: 'eCash',
+  dgb: 'DigiByte',
+  nmc: 'Namecoin',
+};
+
+// Group device cards by chain (BTC pool, BCH pool, etc.). For single-chain
+// fleets this is a no-op — flat render preserves the original UX. For
+// multi-chain fleets, emit a section header before each chain's cards.
+// Headers use grid-column: 1 / -1 so they span the row; cards stay direct
+// children of <main> (no wrapper div) to keep the auto-fill grid working.
+function renderDeviceGrid(devices) {
+  const groups = {};
+  for (const d of devices) {
+    const chain = d.chain || 'btc';
+    (groups[chain] = groups[chain] || []).push(d);
+  }
+  const chainKeys = Object.keys(groups);
+  if (chainKeys.length <= 1) {
+    return devices.map(renderCompactDevice).join('');
+  }
+  // BTC first, then alpha — keeps the dominant pool at the top of the page.
+  chainKeys.sort((a, b) => (a === 'btc' ? -1 : b === 'btc' ? 1 : a.localeCompare(b)));
+  return chainKeys.map(chain => {
+    const group = groups[chain];
+    const name = CHAIN_DISPLAY[chain] || chain.toUpperCase();
+    const pools = [...new Set(group.map(d => (d.stratum && d.stratum.url || '').toLowerCase()).filter(Boolean))];
+    const poolLabel = pools.length === 1 ? pools[0] : pools.length + ' pools';
+    const noun = group.length === 1 ? 'device' : 'devices';
+    return `
+      <h2 class="pool-group-header" data-chain="${chain}">
+        <span class="pool-group-chain">${escapeHtml(name)}</span>
+        <span class="pool-group-meta">${escapeHtml(poolLabel)} · ${group.length} ${noun}</span>
+      </h2>
+    ` + group.map(renderCompactDevice).join('');
+  }).join('');
+}
+
 async function poll() {
   try {
     const devices = await api('/api/devices');
@@ -767,7 +810,7 @@ async function poll() {
         </div>
       `;
     } else {
-      main.innerHTML = devices.map(renderCompactDevice).join('');
+      main.innerHTML = renderDeviceGrid(devices);
     }
 
     renderFleetLeaderboard(devices);

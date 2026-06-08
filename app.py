@@ -560,7 +560,23 @@ _CHAIN_PATTERNS = [
 _chain_stats_cache = {}   # chain_id → (fetched_at, stats_dict)
 _CHAIN_TTL_SEC = 600
 
-def _infer_chain(stratum_url, stratum_port=0):
+def _infer_chain(stratum_url, stratum_port=0, stratum_user=""):
+    """
+    Detect the chain a miner is pointed at. Priority order, most reliable first:
+      1. The stratumUser's payout-address prefix (CashAddr / BIP-21 style).
+         Pools require the worker name start with the actual payout address, so
+         the address format is a definitive signal — "bitcoincash:..." is BCH,
+         "ecash:..." is XEC, etc. Pool URLs rebrand and multi-coin pools muddy
+         the URL signal, but a CashAddr-encoded address can only be one coin.
+      2. URL needles (legacy multi-coin pool subdomains like xec.pool.com).
+      3. solohash.co.uk port heuristic (3337 = BCH, 3333 = BTC).
+      4. Fall through to BTC.
+    """
+    user = str(stratum_user or "").lower()
+    if user.startswith("bitcoincash:") or user.startswith("bchtest:"):
+        return "bch"
+    if user.startswith("ecash:"):
+        return "xec"
     if not stratum_url:
         return "btc"
     u = str(stratum_url).lower()
@@ -753,9 +769,9 @@ def _block_probability_math(hashrate_ghs, network_diff, best_diff_value):
         "proximity":    round(proximity, 4),
     }
 
-def _solo_block_payload(stratum_url, stratum_port, hashrate_ghs, best_diff_str):
+def _solo_block_payload(stratum_url, stratum_port, hashrate_ghs, best_diff_str, stratum_user=""):
     """Top-level builder for the device_summary 'blockProbability' field. None if unavailable."""
-    chain_id = _infer_chain(stratum_url, stratum_port)
+    chain_id = _infer_chain(stratum_url, stratum_port, stratum_user)
     stats = _chain_stats(chain_id)
     if not stats:
         return None
@@ -776,6 +792,9 @@ def _solo_block_payload(stratum_url, stratum_port, hashrate_ghs, best_diff_str):
 
 def device_summary(s):
     if not s["latest"]:
+        # Device has never been polled successfully (`latest` stays populated
+        # after a device goes offline, so this branch only fires for fresh
+        # adds). Default chain to "btc" since we have no stratum info.
         return {
             "ip": s["ip"],
             "label": s["label"],
@@ -785,6 +804,7 @@ def device_summary(s):
             "events": list(s["events"]),
             "recommendations": [],
             "severity": "crit" if not s["online"] else None,
+            "chain": "btc",
         }
 
     latest = s["latest"]
@@ -896,11 +916,17 @@ def device_summary(s):
         "recommendations": recs,
         "severity": _max_severity(recs),
         "autotune": _autotune_summary(s),
+        "chain": _infer_chain(
+            latest.get("stratumURL", ""),
+            latest.get("stratumPort", 0),
+            latest.get("stratumUser", ""),
+        ),
         "blockProbability": _solo_block_payload(
             latest.get("stratumURL", ""),
             latest.get("stratumPort", 0),
             ghs,
             latest.get("bestDiff", "0"),
+            latest.get("stratumUser", ""),
         ),
         "history": [
             {
@@ -1089,8 +1115,11 @@ def _alerts_check(ip: str, label: str, summary: dict) -> None:
 #      Apply best_stable. Mark COMPLETE.
 #
 # Hard ceilings (instant abort, restore baseline):
-#   - VR temp ≥ 65°C
-#   - ASIC temp ≥ 65°C
+#   - ASIC temp ≥ 65°C — the chip's own thermal envelope
+#   - VR temp ≥ 85°C — the BM1370 board's voltage-regulator pads are spec'd
+#     around 95°C; 85 is conservative. Earlier code used a single 65°C
+#     threshold for both, which caused instant abort on Gamma 602 boards
+#     (their VR routinely idles at 68-70°C, well below any actual risk).
 #   - HW error rate ≥ 5% (clearly destabilized — drop everything)
 AUTOTUNE_OBSERVE_S = 90      # seconds at each freq before evaluating
 AUTOTUNE_STEP_MHZ = 25       # frequency increment per step
@@ -1098,7 +1127,8 @@ AUTOTUNE_MAX_STEPS = 8       # worst case: ~12 minutes
 AUTOTUNE_HW_GOOD_PCT = 0.5   # below this → keep pushing
 AUTOTUNE_HW_CEILING_PCT = 2.0  # at or above → declare ceiling (back off)
 AUTOTUNE_HW_ABORT_PCT = 5.0  # at or above → ABORT (chip clearly destabilized)
-AUTOTUNE_TEMP_ABORT_C = 65.0
+AUTOTUNE_ASIC_ABORT_C = 65.0
+AUTOTUNE_VR_ABORT_C   = 85.0
 
 
 def _autotune_log(s: dict, msg: str) -> None:
@@ -1193,11 +1223,11 @@ def _autotune_tick(ip: str, s: dict) -> None:
     hw_pct = (hw_delta / total * 100) if total > 0 else 0.0
 
     # --- Hard safety ceilings ---
-    if vr >= AUTOTUNE_TEMP_ABORT_C:
-        _autotune_abort(ip, s, f"VR temp {vr:.1f}°C ≥ {AUTOTUNE_TEMP_ABORT_C}°C")
+    if vr >= AUTOTUNE_VR_ABORT_C:
+        _autotune_abort(ip, s, f"VR temp {vr:.1f}°C ≥ {AUTOTUNE_VR_ABORT_C}°C")
         return
-    if asic >= AUTOTUNE_TEMP_ABORT_C:
-        _autotune_abort(ip, s, f"ASIC temp {asic:.1f}°C ≥ {AUTOTUNE_TEMP_ABORT_C}°C")
+    if asic >= AUTOTUNE_ASIC_ABORT_C:
+        _autotune_abort(ip, s, f"ASIC temp {asic:.1f}°C ≥ {AUTOTUNE_ASIC_ABORT_C}°C")
         return
     if hw_pct >= AUTOTUNE_HW_ABORT_PCT:
         _autotune_abort(ip, s, f"HW error rate {hw_pct:.2f}% ≥ {AUTOTUNE_HW_ABORT_PCT}%")
@@ -1287,10 +1317,70 @@ def device_detail(ip):
     return render_template("device.html", ip=ip, presets=PRESETS, bounds=BOUNDS)
 
 
+# Fleet outlier detection — informational rec for devices materially
+# under-performing or over-erroring vs. their peers on the same chain.
+# Compared within-chain to avoid false positives when a Gamma on BTC sits
+# next to a Gamma on BCH (network difficulty changes the share rate, not
+# the hashrate, but the user would be confused either way).
+FLEET_OUTLIER_MIN_DEVICES = 3        # statistically meaningless below this
+FLEET_OUTLIER_GHS_FLOOR_PCT = 0.80   # device GH/s < 80% of fleet median → flag
+FLEET_OUTLIER_HW_MULTIPLE   = 2.0    # device HW% > 2× fleet median (and > 1%) → flag
+
+
+def _enrich_fleet_outliers(summaries):
+    """Add a `fleet_outlier` recommendation to each summary whose metrics
+    deviate materially from the fleet median (within the same chain).
+    No-op if the fleet has fewer than FLEET_OUTLIER_MIN_DEVICES devices."""
+    online = [s for s in summaries if s.get("online") and s.get("metrics")]
+    if len(online) < FLEET_OUTLIER_MIN_DEVICES:
+        return summaries
+
+    # Bucket by chain so cross-chain comparisons don't muddy the median.
+    by_chain = {}
+    for s in online:
+        by_chain.setdefault(s.get("chain", "btc"), []).append(s)
+
+    for chain, group in by_chain.items():
+        if len(group) < FLEET_OUTLIER_MIN_DEVICES:
+            continue
+        ghs_values = sorted(s["metrics"]["hashRate"] for s in group)
+        hw_values = sorted(s["hwErrors"]["ratePct"] for s in group)
+        # median (n is small; explicit pick beats importing statistics)
+        median_ghs = ghs_values[len(ghs_values) // 2]
+        median_hw  = hw_values[len(hw_values) // 2]
+        ghs_floor = median_ghs * FLEET_OUTLIER_GHS_FLOOR_PCT
+        hw_ceiling = max(1.0, median_hw * FLEET_OUTLIER_HW_MULTIPLE)
+
+        for s in group:
+            ghs = s["metrics"]["hashRate"]
+            hw_pct = s["hwErrors"]["ratePct"]
+            issues = []
+            if median_ghs > 0 and ghs < ghs_floor:
+                deficit_pct = round((1 - ghs / median_ghs) * 100, 1)
+                issues.append(
+                    f"hashing {deficit_pct}% below fleet median ({ghs:.0f} vs {median_ghs:.0f} GH/s)"
+                )
+            if hw_pct > hw_ceiling:
+                issues.append(
+                    f"HW errors {hw_pct:.2f}% vs fleet median {median_hw:.2f}%"
+                )
+            if not issues:
+                continue
+            s.setdefault("recommendations", []).append({
+                "id": "fleet_outlier",
+                "severity": "info",
+                "title": "Fleet outlier",
+                "body": "This device is " + " and ".join(issues) + ". "
+                        "Check cooling, mounting, or chip lottery vs. its siblings.",
+            })
+    return summaries
+
+
 @app.route("/api/devices")
 def api_devices():
     with state_lock:
-        return jsonify([device_summary(s) for s in state.values()])
+        summaries = [device_summary(s) for s in state.values()]
+    return jsonify(_enrich_fleet_outliers(summaries))
 
 
 @app.route("/api/device/<ip>")

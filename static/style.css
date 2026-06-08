@@ -832,6 +832,28 @@
     background: var(--accent-soft);
   }
 
+  /* Pool/chain section header on the home dashboard. Only renders when the
+     fleet spans multiple chains (e.g. one Bitaxe on BTC, another on BCH).
+     Spans the full grid row so the auto-fill cards below it line up under
+     the right header. */
+  .pool-group-header {
+    grid-column: 1 / -1;
+    margin: 8px 0 0;
+    padding: 0 4px 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .pool-group-header:first-child { margin-top: 0; }
+  .pool-group-header .pool-group-chain { color: var(--text); }
+  .pool-group-header .pool-group-meta { color: var(--dim); font-weight: 400; font-size: 10px; text-transform: none; letter-spacing: 0; }
+
   /* =====================================================================
      v1.4 — compact home cards + device detail page
      ===================================================================== */
