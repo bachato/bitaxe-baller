@@ -1,0 +1,83 @@
+name: Notify Discord on release
+
+# Fires on every version tag push (e.g. v1.14.0, v1.14.1) and posts a
+# compact announcement to the #changelog Discord channel via webhook.
+#
+# Why a separate workflow vs. tacking onto build-windows.yml: that workflow
+# can take several minutes (PyInstaller + Authenticode signing), and we want
+# the Discord ping to fire roughly when the tag goes up, not after the
+# Windows build finishes. Worst case, the embed posts before the Mac DMG is
+# uploaded — the Mac auto-update banner still fires correctly once the
+# release-mac.sh upload completes, and humans clicking the link land on
+# the GitHub release page which auto-refreshes as assets land.
+#
+# Secret: DISCORD_RELEASE_WEBHOOK — Discord webhook URL for the changelog
+# channel. Set via:
+#   gh secret set DISCORD_RELEASE_WEBHOOK --repo 465media/bitaxe-baller
+#
+# To disable temporarily: delete the secret. The curl will fail with 404
+# and the job moves on (we don't fail the workflow on Discord errors —
+# the release shipping is the source of truth, the ping is best-effort).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to announce (e.g. v1.14.1)"
+        required: true
+        type: string
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.DISCORD_RELEASE_WEBHOOK != '' }}
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # Compact embed — title + links. For releases that warrant a
+          # richer announcement (per-feature breakdown, screenshots) post a
+          # follow-up manually; this is the always-on baseline so no
+          # release ever ships silently again.
+          PAYLOAD=$(python3 -c "
+          import json, os
+          tag = os.environ['TAG']
+          payload = {
+            'embeds': [{
+              'title': f'🚀 Bitaxe Baller {tag} released',
+              'url': f'https://github.com/465media/bitaxe-baller/releases/tag/{tag}',
+              'color': 5763719,
+              'description': (
+                f'**[GitHub release](https://github.com/465media/bitaxe-baller/releases/tag/{tag})** · '
+                '**[Changelog](https://bitaxeballer.com/changelog.html)**\n\n'
+                'Mac auto-update banner fires for everyone on the previous version within an hour. '
+                'Manual downloads: [Mac](https://bitaxeballer.com/download/mac) · '
+                '[Windows](https://bitaxeballer.com/download/windows) · '
+                '[Umbrel](https://github.com/465media/umbrel-bitaxe-baller-store).'
+              ),
+              'footer': {
+                'text': 'Bitaxe Baller · 465 Media',
+                'icon_url': 'https://bitaxeballer.com/favicon.ico'
+              }
+            }]
+          }
+          print(json.dumps(payload))
+          ")
+          # Best-effort — don't fail the job on Discord errors.
+          curl -fsS -X POST "$WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || echo "[warn] Discord post failed; continuing"
