@@ -28,7 +28,7 @@ import relay_client
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.14.0"
+APP_VERSION = "1.14.1"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -3343,7 +3343,19 @@ def _run_webview(zc, info) -> None:
         )
         # webview.start() blocks the main thread until the window is closed.
         # macOS GUI work *must* happen on the main thread, hence this layout.
-        webview.start()
+        #
+        # private_mode=False + storage_path=<persistent dir> tells the embedded
+        # WKWebView (macOS) / WebView2 (Windows) to persist localStorage,
+        # cookies, IndexedDB, etc. across app restarts. pywebview defaults
+        # private_mode=True, which gave us incognito-style behavior — the
+        # theme toggle, hashrate unit (GH/s ↔ TH/s), temperature unit (°C/°F),
+        # and every other localStorage-backed UI preference were getting wiped
+        # every launch. Storage lives under the same data dir we use for
+        # config.json / history.db so it survives Mac DMG reinstalls and
+        # Umbrel app updates (bind-mounted to /data on Umbrel).
+        webview_storage = os.path.join(_DATA_DIR, "webview")
+        os.makedirs(webview_storage, exist_ok=True)
+        webview.start(private_mode=False, storage_path=webview_storage)
     finally:
         # Flask thread is daemonized so it dies with the process; just clean
         # up the mDNS service so we don't leave a stale TTL on the LAN.
