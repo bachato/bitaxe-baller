@@ -75,6 +75,8 @@
   </div>
 </section>
 
+<section class="fleet-block-eta" id="fleet-block-eta"></section>
+
 <section class="toolbar">
   <div class="add-form">
     <span class="label">+ add device</span>
@@ -181,7 +183,7 @@
 </details>
 
 <footer>
-  <div>Bitaxe Baller v1.14.3 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.15.0 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -311,6 +313,87 @@ function renderSummary(devices) {
   document.getElementById('sum-online').textContent = online.length;
   document.getElementById('sum-total').textContent = '/' + devices.length;
   document.getElementById('device-count').textContent = devices.length;
+
+  renderFleetBlockEta(devices);
+}
+
+// Fleet block-probability rollup. Aggregates per-chain hashrate from each
+// online device's blockProbability payload and computes a fleet-level
+// "expected days to next block" headline. Pure client-side — uses the
+// per-device data already in /api/devices, no extra request needed.
+//
+// Empty fleets (no online devices, or no blockProbability data yet) render
+// nothing — the host section is :empty and the CSS hides it. Single-chain
+// fleets get one tile; mixed BTC+BCH fleets get one per chain.
+function renderFleetBlockEta(devices) {
+  const host = document.getElementById('fleet-block-eta');
+  if (!host) return;
+
+  const byChain = {};
+  for (const d of devices) {
+    if (!d.online || !d.blockProbability || !d.metrics) continue;
+    const bp = d.blockProbability;
+    if (!bp.chain || !bp.difficulty) continue;
+    if (!byChain[bp.chain]) {
+      byChain[bp.chain] = {
+        chain: bp.chain,
+        chainName: bp.chainName,
+        symbol: bp.symbol,
+        difficulty: bp.difficulty,
+        rewardUsd: bp.rewardUsd,
+        ghs: 0,
+        deviceCount: 0,
+      };
+    }
+    byChain[bp.chain].ghs += d.metrics.hashRate || 0;
+    byChain[bp.chain].deviceCount += 1;
+  }
+
+  const chains = Object.values(byChain).filter(c => c.ghs > 0);
+  if (chains.length === 0) {
+    host.innerHTML = '';
+    return;
+  }
+  chains.sort((a, b) => (a.chain === 'btc' ? -1 : b.chain === 'btc' ? 1 : a.chain.localeCompare(b.chain)));
+
+  const tiles = chains.map(c => {
+    // per-second block probability: GH/s × 1e9 ÷ (2³² × network difficulty).
+    // Equivalent to summing each device's per-second rate. Math holds because
+    // share difficulty is linear in hashrate at constant network difficulty.
+    const perSec = (c.ghs * 1e9) / (Math.pow(2, 32) * c.difficulty);
+    const days = 1 / (perSec * 86400);
+    let etaText;
+    if (days < (1/24)) {
+      etaText = (days * 24 * 60).toFixed(0) + ' min';
+    } else if (days < 1) {
+      etaText = (days * 24).toFixed(1) + ' hours';
+    } else if (days < 365 * 3) {
+      etaText = days.toFixed(days < 30 ? 1 : 0) + ' days';
+    } else {
+      etaText = (days / 365).toFixed(0) + ' years';
+    }
+    const inTh = getHashrateUnit() === 'TH';
+    const hashText = inTh
+      ? (c.ghs / 1000).toFixed(2) + ' TH/s'
+      : c.ghs.toFixed(0) + ' GH/s';
+    const usdText = c.rewardUsd > 0
+      ? ' · $' + Math.round(c.rewardUsd).toLocaleString() + ' reward'
+      : '';
+    const noun = c.deviceCount === 1 ? 'device' : 'devices';
+    const tip = `Expected time for ${c.deviceCount} ${c.chainName} ${noun} (${hashText} combined) to solve a block at current network difficulty. The actual block could come tomorrow or never — this is the long-run average expectation, not a deadline.`;
+    return `
+      <div class="eta-tile" data-chain="${c.chain}" data-tip="${escapeHtml(tip)}">
+        <div class="eta-chain">${escapeHtml(c.chainName)} fleet</div>
+        <div class="eta-row">
+          <span class="eta-value">~${etaText}</span>
+          <span class="eta-label">to next block</span>
+        </div>
+        <div class="eta-sub">${c.deviceCount} ${noun} · ${hashText}${usdText}</div>
+      </div>
+    `;
+  }).join('');
+
+  host.innerHTML = tiles;
 }
 
 document.getElementById('add-btn').addEventListener('click', async () => {
