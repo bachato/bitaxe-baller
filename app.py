@@ -124,9 +124,13 @@ PRESETS = {
     "max":        {"frequency": 625, "coreVoltage": 1225, "label": "Max (risky)"},
 }
 
-# Sane bounds — refuse to send anything outside these
+# Sane bounds — refuse to send anything outside these. BM1370 (Gamma) can run
+# stable past 700 MHz on good silicon with adequate cooling — empirically up to
+# ~900 MHz at 1200 mV on well-cooled chips. The previous 700 cap was too
+# conservative for users tuning silicon-lottery winners. The 1300 mV ceiling
+# stays — that's Bitmain's spec, going higher accelerates chip wear sharply.
 BOUNDS = {
-    "frequency": (400, 700),     # MHz
+    "frequency": (400, 900),     # MHz
     "coreVoltage": (1000, 1300), # mV
     "fanspeed": (0, 100),        # %
 }

@@ -60,7 +60,7 @@ The `severity` field on the summary is the max severity of actionable recs (excl
 
 ## Safety bounds (server-enforced before PATCH)
 
-- frequency: 400–700 MHz
+- frequency: 400–900 MHz
 - coreVoltage: 1000–1300 mV
 - fanspeed: 0–100%
 - stratum port: 1–65535

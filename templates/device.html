@@ -260,7 +260,7 @@ function tunePanel(d) {
       <div class="heading">manual tune</div>
       <div class="manual">
         <div class="field">
-          <label data-tip="ASIC core frequency in MHz. Higher = more hashrate, more heat, more power. Hard cap is 700 MHz, but most chips will throw HW errors well before that.">frequency (${BOUNDS.frequency[0]}-${BOUNDS.frequency[1]} MHz)</label>
+          <label data-tip="ASIC core frequency in MHz. Higher = more hashrate, more heat, more power. Stock Gamma is 525-575 MHz; silicon-lottery winners with adequate cooling can stably hit 800-900 MHz at 1200 mV. The hard cap is the server-side limit — most chips will throw HW errors well before that point.">frequency (${BOUNDS.frequency[0]}-${BOUNDS.frequency[1]} MHz)</label>
           <div class="input-row">
             <button class="step" onclick="bumpField('frequency',-25)" data-tip="Decrease frequency by 25 MHz (one tuning step).">−25</button>
             <button class="step" onclick="bumpField('frequency',-5)" data-tip="Decrease by 5 MHz — fine adjustment.">−5</button>
@@ -403,8 +403,8 @@ function autotunePanel(d) {
           Aborts immediately on temps ≥ ${fmtTemp(65, 0)}${tempUnitLabel()} or HW errors ≥ 5%.
         </p>
         <div class="autotune-controls">
-          <label data-tip="Don't go above this frequency. Default = top of the safety range (700 MHz).">
-            max freq <input type="number" id="autotune-max" min="${minFreq + 25}" max="700" step="25" value="${Math.min(700, minFreq + 100)}">
+          <label data-tip="Don't go above this frequency. Default = current freq + 100 MHz, capped at the server-side maximum.">
+            max freq <input type="number" id="autotune-max" min="${minFreq + 25}" max="${BOUNDS.frequency[1]}" step="25" value="${Math.min(BOUNDS.frequency[1], minFreq + 100)}">
           </label>
           <button type="button" class="primary" onclick="autotuneStart()" data-tip="Start the sweep. You can stop it anytime — the baseline is restored on abort.">▶ start auto-tune</button>
         </div>
