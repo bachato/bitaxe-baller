@@ -181,7 +181,7 @@
 </details>
 
 <footer>
-  <div>Bitaxe Baller v1.14.1 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.14.2 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -222,6 +222,7 @@ function renderCompactDevice(d) {
       <a class="device-link" href="${href}">
         <div class="device compact offline ${selected ? 'bulk-selected' : ''}" data-ip="${ip}">
           ${cb}
+          <button class="device-remove" data-ip="${ip}" data-tip="Remove this device from the dashboard. Useful when you've replaced a Bitaxe, changed IPs, or end up with a stale duplicate." aria-label="Remove device">×</button>
           <div class="compact-head">
             <div class="left">
               <span class="dot"></span>
@@ -540,6 +541,27 @@ document.addEventListener('click', (e) => {
   }
   const ip = cb.getAttribute('data-ip');
   if (ip) toggleBulkSelection(ip, cb);
+});
+
+// Remove-device button on offline cards. The whole card is wrapped in an
+// <a>, so the click handler stops propagation and prevents default before
+// the link can fire. Confirms first — removal isn't reversible, but the
+// device can always be re-added if it comes back online.
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest && e.target.closest('.device-remove');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const ip = btn.getAttribute('data-ip');
+  if (!ip) return;
+  if (!confirm(`Remove ${ip} from the dashboard? You can re-add it later if it comes back online.`)) return;
+  try {
+    await api('/api/devices/remove', 'POST', { ip });
+    toast(`Removed ${ip}`);
+    poll();
+  } catch (err) {
+    toast(`Remove failed: ${err.message || err}`, 'err');
+  }
 });
 
 // Toolbar wiring (elements exist server-side, so we can bind on DOMContentLoaded).

@@ -1557,6 +1557,33 @@
   /* Make room on the left of the head row for the 16px checkbox + gap. */
   .device.compact .compact-head { padding-left: 32px; }
 
+  /* Remove-device × button. Top-right of offline cards. Only emitted for
+     offline devices in renderCompactDevice — online cards rely on the
+     device-detail page's Remove button. Lives inside the wrapping <a>, so
+     its click handler stops propagation before the link can fire. */
+  .device-remove {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border-bright);
+    background: var(--bg);
+    color: var(--dim);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 5;
+    border-radius: 3px;
+    padding: 0;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .device-remove:hover {
+    color: var(--crit);
+    border-color: var(--crit);
+    background: var(--bg);
+  }
+
   .bulk-checkbox {
     position: absolute;
     top: 8px;

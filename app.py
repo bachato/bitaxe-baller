@@ -28,7 +28,7 @@ import relay_client
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.14.1"
+APP_VERSION = "1.14.2"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -2721,18 +2721,59 @@ def api_device_add():
     except Exception as e:
         return jsonify({"error": f"Could not reach {ip}: {str(e)[:120]}"}), 400
 
+    new_mac = (info.get("macAddr") or "").strip().lower()
+
     with config_lock:
         cfg = load_config()
         if any(d["ip"] == ip for d in cfg["devices"]):
             return jsonify({"error": f"{ip} is already added"}), 400
+
+        # MAC-based dedup. If the new device's MAC matches one we already
+        # track at a different IP, this is the same physical Bitaxe — the
+        # user probably just switched DHCP ↔ static or relocated it. Quietly
+        # re-bind: drop the old IP entry, carry over its label and event log
+        # to the new one. Without this, scan → set-static-IP → re-add yields
+        # two cards for one miner, one of them perpetually offline.
+        rebound_from = None
+        rebound_label = None
+        if new_mac:
+            with state_lock:
+                for d in list(cfg["devices"]):
+                    existing_ip = d["ip"]
+                    s = state.get(existing_ip)
+                    if not s:
+                        continue
+                    latest = s.get("latest") or {}
+                    existing_mac = (latest.get("macAddr") or "").strip().lower()
+                    if existing_mac and existing_mac == new_mac:
+                        rebound_from = existing_ip
+                        rebound_label = d.get("label")
+                        cfg["devices"] = [x for x in cfg["devices"] if x["ip"] != existing_ip]
+                        state.pop(existing_ip, None)
+                        break
+
+        # Preserve the user's existing label across the rebind unless they
+        # passed an explicit override in the body.
+        if rebound_label and not (body.get("label") or "").strip():
+            label = rebound_label
+
         cfg["devices"].append({"ip": ip, "label": label})
         save_config(cfg)
 
     with state_lock:
         state[ip] = init_device_state(ip, label)
 
-    log_event(ip, f"Device added (model: {info.get('ASICModel', '?')}, fw: {info.get('version', '?')})")
-    return jsonify({"ok": True, "ip": ip, "label": label, "model": info.get("ASICModel")})
+    if rebound_from:
+        log_event(ip, f"Device re-bound from {rebound_from} (same MAC {new_mac})")
+    else:
+        log_event(ip, f"Device added (model: {info.get('ASICModel', '?')}, fw: {info.get('version', '?')})")
+    return jsonify({
+        "ok": True,
+        "ip": ip,
+        "label": label,
+        "model": info.get("ASICModel"),
+        "rebound_from": rebound_from,
+    })
 
 
 @app.route("/api/devices/remove", methods=["POST"])
