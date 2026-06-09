@@ -629,6 +629,7 @@ window.applyManual = async () => {
     await api('/api/devices/tune', 'POST', { ip: DEVICE_IP, frequency: freq, coreVoltage: volt });
     toast(`Applied: ${freq}MHz / ${volt}mV`, 'info');
     pendingValues = {};
+    _clearDirty();
     setTimeout(poll, 800);
   } catch (e) { toast('Apply failed: ' + e.message, 'error'); }
 };
@@ -662,6 +663,7 @@ window.applyFan = async () => {
   try {
     await api('/api/devices/tune', 'POST', body);
     toast(auto ? 'Auto-fan enabled' : `Fan set to ${fan}%`, 'info');
+    _clearDirty(document.getElementById('fan-slider')?.closest('.tune-panel, form, section') || document);
     setTimeout(poll, 800);
   } catch (e) { toast('Fan set failed: ' + e.message, 'error'); }
 };
@@ -684,6 +686,7 @@ window.applyPool = async () => {
   try {
     const res = await api('/api/devices/pool', 'POST', body);
     toast(`Pool updated: ${(res.applied || []).join(', ')}${res.restarted ? ' · restarting…' : ''}`, 'info', 6000);
+    _clearDirty(form);
     setTimeout(poll, 1500);
   } catch (e) { toast('Pool update failed: ' + e.message, 'error', 6000); }
 };
@@ -804,9 +807,45 @@ document.addEventListener('click', (e) => {
 // bucket is 30 seconds. Cheap SELECT against an indexed SQLite table.
 setInterval(() => { if (proHistoryActive) loadHistory(); }, 60_000);
 
+// Pause the 5-second wholesale page re-render while the user is editing any
+// form input. Without this, a user who types a new wallet address into the
+// pool form can have their typing clobbered by the next poll's re-render
+// before they hit "apply" — the underlying DOM gets innerHTML-replaced so
+// the field reverts to whatever the device last reported.
+//
+// "Editing" = either the active focus is inside an input/textarea/select, OR
+// the input carries a data-dirty flag set on the most recent input event.
+// The dirty flag survives focus loss (user tabs to a different window etc.)
+// and is cleared per-form after a successful submit.
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.matches && e.target.matches('input, textarea, select')) {
+    e.target.dataset.dirty = '1';
+  }
+});
+
+function _isUserEditing() {
+  const root = document.getElementById('detail-root');
+  if (!root) return false;
+  const a = document.activeElement;
+  if (a && root.contains(a) && a.matches('input, textarea, select')) return true;
+  return !!root.querySelector('[data-dirty="1"]');
+}
+
+function _clearDirty(scope) {
+  (scope || document).querySelectorAll('[data-dirty="1"]')
+    .forEach(el => delete el.dataset.dirty);
+}
+
 async function poll() {
   try {
     const d = await api(`/api/device/${encodeURIComponent(DEVICE_IP)}`);
+    if (_isUserEditing()) {
+      // User is mid-edit — skip the full re-render this cycle. Only refresh
+      // the lightweight timestamp so they can see polling is still alive.
+      const ts = document.getElementById('last-update');
+      if (ts) ts.textContent = new Date().toLocaleTimeString() + ' · paused (editing form)';
+      return;
+    }
     const root = document.getElementById('detail-root');
     root.innerHTML = renderDetail(d);
     if (d.online && d.history?.length) {
