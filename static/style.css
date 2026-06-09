@@ -1086,6 +1086,38 @@
     border-bottom: 1px dashed var(--border-bright);
   }
 
+  /* Pool profiles — saved named pool configs you can apply with one click.
+     Sits directly above the manual pool config form on the device page. */
+  .pool-profiles {
+    border: 1px dashed var(--border);
+    background: var(--bg-elev);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+  }
+  .pool-profiles:empty { display: none; }
+  .pool-profile-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .pool-profile-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--dim);
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .pool-profile-row select {
+    flex: 1 1 240px;
+    min-width: 200px;
+  }
+  .pool-profile-row button {
+    white-space: nowrap;
+  }
+
   /* Pool config form */
   .pool-form {
     display: grid;

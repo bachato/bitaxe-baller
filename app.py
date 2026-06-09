@@ -6,6 +6,7 @@ or:  open Bitaxe-Baller.app    (packaged release)
 Then your default browser opens to the dashboard. Add devices and tune.
 """
 
+import base64
 import json
 import socket
 import sqlite3
@@ -3154,6 +3155,57 @@ POOL_FIELDS = {
     "fallbackStratumTLS", "fallbackStratumSuggestedDifficulty",
 }
 
+# Pool profile fields — same as POOL_FIELDS minus the passwords. Pool passwords
+# are write-only per the wider convention (worker passwords are sensitive and
+# never echoed back from the device), so profiles deliberately don't store
+# them. If a user wants a non-default password, they enter it on the pool form
+# after applying the profile.
+POOL_PROFILE_FIELDS = {f for f in POOL_FIELDS if "Password" not in f}
+
+
+def _load_pool_profiles():
+    with config_lock:
+        cfg = load_config()
+    return list(cfg.get("pool_profiles") or [])
+
+
+def _save_pool_profiles(profiles):
+    with config_lock:
+        cfg = load_config()
+        cfg["pool_profiles"] = profiles
+        save_config(cfg)
+
+
+def _new_profile_id() -> str:
+    """6-char URL-safe random id. Profiles are user-facing config, so collisions
+    inside the same install are vanishingly unlikely — and a collision would
+    just mean the first save wins, which is recoverable."""
+    return base64.urlsafe_b64encode(os.urandom(5)).decode("ascii").rstrip("=")[:6]
+
+
+def _filter_profile_payload(body: dict) -> dict:
+    """Normalize the pool fields out of a request body into a profile dict.
+    Drops unknown keys, normalizes types, leaves missing fields unset rather
+    than empty-stringed (so 'apply' won't send empty overrides to the device)."""
+    out = {}
+    for key in POOL_PROFILE_FIELDS:
+        if key not in body:
+            continue
+        v = body[key]
+        if v is None or v == "":
+            continue
+        if key.endswith("Port") or key.endswith("TLS") or key.endswith("SuggestedDifficulty"):
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                continue
+        else:
+            v = str(v).strip()
+            if not v:
+                continue
+        out[key] = v
+    return out
+
 
 @app.route("/api/devices/pool", methods=["POST"])
 def api_device_pool():
@@ -3207,6 +3259,95 @@ def api_device_pool():
             return jsonify({"ok": True, "applied": safe_keys, "restartError": str(e)[:120]}), 200
 
     return jsonify({"ok": True, "applied": safe_keys, "restarted": restarted})
+
+
+# ----- Pool profiles (named pool configs you can save + reapply) -----
+# Save once, switch with one click. Useful when bouncing between BTC and BCH
+# pools, or between two different BTC pools (Public Pool vs Ocean vs Solo
+# CKPool). Passwords are NOT stored — worker passwords are write-only per
+# the wider convention; if a profile needs a non-default password, the user
+# types it once on the pool form after applying. The Pro-gated scheduler
+# (time-of-day pool switching) is a separate follow-up and out of scope for
+# this MVP — manual switch only.
+
+@app.route("/api/pool-profiles", methods=["GET"])
+def api_pool_profiles_list():
+    return jsonify({"profiles": _load_pool_profiles()})
+
+
+@app.route("/api/pool-profiles", methods=["POST"])
+def api_pool_profiles_create():
+    body = request.get_json(force=True) or {}
+    name = str(body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    if len(name) > 60:
+        return jsonify({"error": "name too long (max 60 chars)"}), 400
+
+    fields = _filter_profile_payload(body)
+    if not fields.get("stratumURL") or not fields.get("stratumPort"):
+        return jsonify({"error": "stratumURL and stratumPort required"}), 400
+
+    profiles = _load_pool_profiles()
+    if any(p.get("name", "").lower() == name.lower() for p in profiles):
+        return jsonify({"error": "a profile with that name already exists"}), 409
+
+    profile = {
+        "id": _new_profile_id(),
+        "name": name,
+        "created_at": int(time.time()),
+        **fields,
+    }
+    profiles.append(profile)
+    _save_pool_profiles(profiles)
+    return jsonify({"ok": True, "profile": profile})
+
+
+@app.route("/api/pool-profiles/<pid>/delete", methods=["POST"])
+def api_pool_profiles_delete(pid):
+    profiles = _load_pool_profiles()
+    remaining = [p for p in profiles if p.get("id") != pid]
+    if len(remaining) == len(profiles):
+        return jsonify({"error": "profile not found"}), 404
+    _save_pool_profiles(remaining)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pool-profiles/<pid>/apply", methods=["POST"])
+def api_pool_profiles_apply(pid):
+    """Apply a saved profile to one device. Body: {ip, restart?}. Reuses the
+    same patch_device path as /api/devices/pool — same bounds checks, same
+    failure semantics, same log event."""
+    body = request.get_json(force=True) or {}
+    ip = body.get("ip")
+    if not ip:
+        return jsonify({"error": "IP required"}), 400
+
+    profile = next((p for p in _load_pool_profiles() if p.get("id") == pid), None)
+    if not profile:
+        return jsonify({"error": "profile not found"}), 404
+
+    settings = {k: v for k, v in profile.items() if k in POOL_PROFILE_FIELDS}
+    if not settings:
+        return jsonify({"error": "profile has no applicable fields"}), 400
+
+    try:
+        patch_device(ip, settings)
+    except Exception as e:
+        return jsonify({"error": f"Failed to apply: {str(e)[:120]}"}), 500
+
+    log_event(ip, f"Pool profile applied: '{profile['name']}' (primary {profile.get('stratumURL', '?')}:{profile.get('stratumPort', '?')})")
+
+    restarted = False
+    if body.get("restart"):
+        try:
+            restart_device(ip)
+            restarted = True
+            log_event(ip, "Restart sent (pool profile change)")
+        except Exception as e:
+            return jsonify({"ok": True, "applied_profile_id": pid, "restartError": str(e)[:120]}), 200
+
+    return jsonify({"ok": True, "applied_profile_id": pid, "restarted": restarted})
 
 
 @app.route("/api/devices/reset_session", methods=["POST"])

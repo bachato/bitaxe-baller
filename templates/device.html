@@ -324,6 +324,9 @@ function poolForm(d) {
       <br>
       Currently active: <strong style="color: var(--accent)">${usingFb ? 'fallback' : 'primary'}</strong>${sm.connectionInfo ? ' · ' + escapeHtml(sm.connectionInfo) : ''}
     </div>
+
+    <div id="pool-profiles-panel" class="pool-profiles" data-tip="Save your current pool config as a named profile, then apply it to any device with one click. Useful for bouncing between pools (BTC ↔ BCH ↔ different BTC pools). Passwords aren't stored in profiles — if a profile needs a non-default password, type it on the form below after applying."></div>
+
     <form class="pool-form" id="pool-form" onsubmit="event.preventDefault(); applyPool();">
       <div class="pool-block">
         <div class="pool-block-title">
@@ -668,6 +671,102 @@ window.applyFan = async () => {
   } catch (e) { toast('Fan set failed: ' + e.message, 'error'); }
 };
 
+// ----- Pool profiles -----
+// Saved as a list in config.json, applied via /api/pool-profiles/<id>/apply.
+// Passwords aren't stored — user types them after apply if needed.
+//
+// Rendered as a small panel above the pool form: profile dropdown + apply
+// button + save-current button + delete control. Renders fresh on each
+// poll so newly-saved profiles appear without a full page reload. The
+// 5-second re-render is also why we don't bind handlers — they fire via
+// the existing document-level click listener pattern.
+let _poolProfilesCache = null;
+async function _fetchPoolProfiles() {
+  try {
+    const data = await api('/api/pool-profiles');
+    _poolProfilesCache = data.profiles || [];
+  } catch (e) {
+    _poolProfilesCache = [];
+  }
+  return _poolProfilesCache;
+}
+
+async function renderPoolProfilesPanel() {
+  const host = document.getElementById('pool-profiles-panel');
+  if (!host) return;
+  const profiles = await _fetchPoolProfiles();
+  const opts = profiles.length
+    ? profiles.map(p =>
+        `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} — ${escapeHtml(p.stratumURL)}:${p.stratumPort}</option>`
+      ).join('')
+    : '<option value="">(no saved profiles yet)</option>';
+
+  host.innerHTML = `
+    <div class="pool-profile-row">
+      <label class="pool-profile-label" data-tip="Pick a saved pool config to apply to THIS device. Profiles are shared across all devices in the dashboard — save once, reuse anywhere.">saved profile</label>
+      <select id="pool-profile-select" ${profiles.length ? '' : 'disabled'}>${opts}</select>
+      <button type="button" class="primary" id="pool-profile-apply" ${profiles.length ? '' : 'disabled'} onclick="applyPoolProfile()" data-tip="Apply the selected profile's pool settings to this device. Same restart-after-apply semantics as the manual pool form below — the device needs to reconnect for the change to take effect.">apply to this device</button>
+      <button type="button" id="pool-profile-save" onclick="saveCurrentAsPoolProfile()" data-tip="Save the values currently in the pool form below as a named profile. Doesn't push them to the device — use 'apply pool config' for that.">save current as…</button>
+      ${profiles.length ? `<button type="button" id="pool-profile-delete" class="danger" onclick="deleteSelectedPoolProfile()" data-tip="Permanently delete the selected profile. Doesn't touch the device's currently active pool config.">delete</button>` : ''}
+    </div>
+  `;
+}
+
+window.saveCurrentAsPoolProfile = async () => {
+  const form = document.getElementById('pool-form');
+  if (!form) return;
+  const name = prompt('Save this pool config as a profile.\n\nName (e.g. "BTC — Public Pool" or "BCH — letsmine.it"):');
+  if (!name || !name.trim()) return;
+  const fd = new FormData(form);
+  const body = { name: name.trim() };
+  for (const [k, v] of fd.entries()) {
+    if (k.toLowerCase().includes('password')) continue;     // never store passwords in profiles
+    if (v === '' || v === null) continue;
+    body[k] = v;
+  }
+  body.stratumTLS = form.querySelector('[name=stratumTLS]').checked ? 1 : 0;
+  body.fallbackStratumTLS = form.querySelector('[name=fallbackStratumTLS]').checked ? 1 : 0;
+  try {
+    const res = await api('/api/pool-profiles', 'POST', body);
+    toast(`Saved profile '${res.profile.name}'`, 'info');
+    _poolProfilesCache = null;
+    renderPoolProfilesPanel();
+  } catch (e) { toast('Save failed: ' + e.message, 'error', 6000); }
+};
+
+window.applyPoolProfile = async () => {
+  const sel = document.getElementById('pool-profile-select');
+  const id = sel?.value;
+  if (!id) return;
+  const profile = (_poolProfilesCache || []).find(p => p.id === id);
+  const restart = confirm(
+    `Apply profile '${profile?.name || id}' to ${DEVICE_IP}?\n\n` +
+    `Primary: ${profile?.stratumURL}:${profile?.stratumPort}\n` +
+    (profile?.fallbackStratumURL ? `Fallback: ${profile.fallbackStratumURL}:${profile.fallbackStratumPort}\n` : '') +
+    `\nClick OK to apply AND restart the device (recommended). Click Cancel to abort.`
+  );
+  if (!restart) return;
+  try {
+    await api(`/api/pool-profiles/${encodeURIComponent(id)}/apply`, 'POST', { ip: DEVICE_IP, restart: true });
+    toast(`Profile '${profile?.name || id}' applied · restarting…`, 'info', 5000);
+    setTimeout(poll, 1500);
+  } catch (e) { toast('Apply failed: ' + e.message, 'error', 6000); }
+};
+
+window.deleteSelectedPoolProfile = async () => {
+  const sel = document.getElementById('pool-profile-select');
+  const id = sel?.value;
+  if (!id) return;
+  const profile = (_poolProfilesCache || []).find(p => p.id === id);
+  if (!confirm(`Delete profile '${profile?.name || id}'?\n\nThis does NOT change the device's currently active pool — it just removes the saved profile.`)) return;
+  try {
+    await api(`/api/pool-profiles/${encodeURIComponent(id)}/delete`, 'POST', {});
+    toast(`Deleted '${profile?.name || id}'`, 'info');
+    _poolProfilesCache = null;
+    renderPoolProfilesPanel();
+  } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
+};
+
 window.applyPool = async () => {
   const form = document.getElementById('pool-form');
   if (!form) return;
@@ -854,6 +953,9 @@ async function poll() {
       if (ch) drawChart(ch, d.history, 'h', '#00ff9c');
       if (ct) drawTempChart(ct, d.history);
     }
+    // Pool profiles panel populates async (separate fetch) — fire-and-forget
+    // so the main render doesn't block on it.
+    renderPoolProfilesPanel();
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
   } catch (e) {
     console.error(e);
