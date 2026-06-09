@@ -33,7 +33,6 @@ on:
 jobs:
   post:
     runs-on: ubuntu-latest
-    if: ${{ secrets.DISCORD_RELEASE_WEBHOOK != '' }}
     steps:
       - name: Resolve tag
         id: tag
