@@ -28,7 +28,7 @@ import relay_client
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.14.2"
+APP_VERSION = "1.14.3"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -2285,17 +2285,20 @@ def _parse_semver(s: str) -> tuple:
 def _banner_recommended(cur: str, latest: str) -> bool:
     """Decide whether the dashboard banner should surface this update.
 
-    Default rule: minor/major bumps (1.8.x → 1.9.0, 1.x → 2.0) banner; patch-only
-    bumps (1.8.1 → 1.8.2) stay silent. Patch releases are usually internal/cosmetic
-    and banner-blasting every one trains users to dismiss reflexively.
+    Rule: banner on any newer version (major, minor, OR patch). The earlier
+    "only banner on minor/major bumps" heuristic suppressed real hotfixes —
+    e.g. v1.14.1 (settings persistence bug) and v1.14.2 (duplicate-card bug)
+    both got swallowed silently for users on v1.14.0, even though they fixed
+    user-visible regressions.
 
-    Users always see the new version on next launch (no notification), they can
-    also check manually via the dashboard. The banner is the "hey, look at this"
-    nudge, reserved for changes that actually warrant the interruption.
+    The dismiss button stores dismissals per-version in localStorage, so a
+    user who genuinely doesn't care can mute one release without muting all
+    future ones — the original "trains users to dismiss reflexively" concern
+    is handled there, not by gating which versions get to banner at all.
     """
     c = _parse_semver(cur)
     l = _parse_semver(latest)
-    return c[:2] != l[:2]
+    return l > c
 
 
 def _current_platform_key() -> str:
