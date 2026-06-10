@@ -2202,6 +2202,77 @@
     margin: 0 0 12px;
     line-height: 1.5;
   }
+
+  /* Pair-code display: QR (scannable) + monospace code text (copy/paste fallback).
+     The 22-char base64url tokens are too long to type accurately on a phone
+     before the TTL expires — QR scan is the primary path, typing is fallback. */
+  .pair-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 18px;
+    align-items: start;
+    padding: 14px;
+    background: var(--bg-deep, var(--bg));
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .pair-qr-wrap { display: flex; flex-direction: column; align-items: center; }
+  .pair-qr-wrap canvas {
+    display: block;
+    background: #fff;
+    border-radius: 4px;
+    padding: 6px;
+  }
+  .pair-qr-cap {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .pair-code-wrap { min-width: 0; }
+  .pair-code-label {
+    font-size: 11px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .pair-code-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    margin-bottom: 8px;
+  }
+  .pair-code {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 17px;
+    letter-spacing: 0.5px;
+    background: var(--bg-2, var(--bg));
+    color: var(--accent);
+    padding: 10px 14px;
+    border-radius: 6px;
+    user-select: all;
+    word-break: break-all;
+    border: 1px solid var(--border);
+  }
+  .pair-copy {
+    white-space: nowrap;
+    padding: 0 14px;
+  }
+  .pair-ttl {
+    font-size: 12px;
+    color: var(--dim);
+    margin-top: 8px;
+  }
+  .pair-ttl em { color: var(--text); font-style: normal; }
+  @media (max-width: 520px) {
+    .pair-grid { grid-template-columns: 1fr; justify-items: center; }
+    .pair-code-wrap { width: 100%; }
+  }
   .remote-blurb code {
     background: var(--bg-deep, var(--bg));
     padding: 1px 6px;

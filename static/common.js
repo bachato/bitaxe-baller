@@ -681,12 +681,20 @@ function _renderPairedDevicesSection(isPro) {
       <p class="remote-blurb">
         View your fleet on your phone. ${isPro ? 'Pro shows every miner.' : 'Free shows your first miner; upgrade to Pro for the full fleet.'} Pairing is one-time per device.
       </p>
-      <div id="pair-token-display" hidden style="margin: 12px 0;">
-        <div style="font-size:13px;color:var(--dim);margin-bottom:6px;">Pair code:</div>
-        <code id="pair-token-text" style="display:block;font-family:'JetBrains Mono',monospace;font-size:18px;letter-spacing:1px;background:var(--bg-2);padding:10px 14px;border-radius:6px;user-select:all;word-break:break-all;"></code>
-        <div style="font-size:12px;color:var(--dim);margin-top:6px;">
-          Type this into the Bitaxe Baller app on your phone within
-          <span id="pair-countdown">60</span> seconds.
+      <div id="pair-token-display" hidden style="margin: 14px 0;">
+        <div class="pair-grid">
+          <div class="pair-qr-wrap">
+            <canvas id="pair-qr" width="180" height="180" aria-label="Pair code QR — scan with your phone camera"></canvas>
+            <div class="pair-qr-cap">Scan with your phone camera</div>
+          </div>
+          <div class="pair-code-wrap">
+            <div class="pair-code-label">…or type this code into the app</div>
+            <div class="pair-code-row">
+              <code id="pair-token-text" class="pair-code"></code>
+              <button type="button" id="pair-copy-btn" class="pro-btn-ghost pair-copy" title="Copy code to clipboard">Copy</button>
+            </div>
+            <div class="pair-ttl">Expires in <span id="pair-countdown">60</span> seconds. Click <em>Generate a new code</em> if it runs out.</div>
+          </div>
         </div>
       </div>
       <div class="pro-actions">
@@ -712,9 +720,63 @@ async function _handlePairNewClick() {
     const display = document.getElementById('pair-token-display');
     const text = document.getElementById('pair-token-text');
     const countdown = document.getElementById('pair-countdown');
+    const canvas = document.getElementById('pair-qr');
+    const copyBtn = document.getElementById('pair-copy-btn');
     if (display && text) {
       text.textContent = token;
       display.hidden = false;
+    }
+    // Render the QR — uses the vendored qrcode-generator lib (`qrcode` global).
+    // The phone's camera-app QR reader can decode this from a few feet away,
+    // which is the whole point: no more 22-char typing race against the TTL.
+    if (canvas && typeof qrcode === 'function') {
+      try {
+        const qr = qrcode(0, 'M'); // typeNumber=0 = auto, errorCorrection=M
+        qr.addData(token);
+        qr.make();
+        const cells = qr.getModuleCount();
+        const ctx = canvas.getContext('2d');
+        const size = canvas.width;
+        const cellSize = Math.floor(size / (cells + 2));
+        const offset = Math.floor((size - cellSize * cells) / 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = '#000000';
+        for (let r = 0; r < cells; r++) {
+          for (let c = 0; c < cells; c++) {
+            if (qr.isDark(r, c)) {
+              ctx.fillRect(offset + c * cellSize, offset + r * cellSize, cellSize, cellSize);
+            }
+          }
+        }
+      } catch (qrErr) {
+        console.error('QR render failed:', qrErr);
+      }
+    }
+    // Wire the Copy button — navigator.clipboard works in modern webviews;
+    // fall back to a temporary textarea + execCommand for older WKWebView.
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(token);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = token;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { if (copyBtn) copyBtn.textContent = 'Copy'; }, 1500);
+        } catch (e) {
+          copyBtn.textContent = 'Copy failed';
+          setTimeout(() => { if (copyBtn) copyBtn.textContent = 'Copy'; }, 1500);
+        }
+      };
     }
 
     btn.textContent = 'Generate a new code';
