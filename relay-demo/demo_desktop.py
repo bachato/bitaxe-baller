@@ -239,15 +239,26 @@ async def _connect_and_serve() -> None:
 
 
 async def main() -> None:
+    # Reconnect backoff: 1s → 2s → 4s → 8s → 16s → 32s → 60s cap. Resets to 1s
+    # any time a connection runs successfully for ≥30s (i.e. the relay was
+    # reachable and the disconnect is unrelated to a connect-side failure).
+    #
+    # Pre-fix, backoff would ramp up across normal idle-disconnects and pin at
+    # 60s — meaning App Review reviewers who hit the demo during a reconnect
+    # window saw a full minute of "no desktop available" responses. Resetting
+    # after each successful session keeps reconnects near-instant.
+    import time as _time
     backoff = 1.0
     while True:
+        connected_at = _time.time()
         try:
             await _connect_and_serve()
-            backoff = 1.0
         except websockets.ConnectionClosed as e:
             log.warning("connection closed code=%s reason=%s", e.code, e.reason)
         except Exception as e:
             log.warning("relay connect failed: %s: %s", e.__class__.__name__, e)
+        if (_time.time() - connected_at) > 30:
+            backoff = 1.0
         log.info("reconnecting in %.1fs", backoff)
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, 60.0)

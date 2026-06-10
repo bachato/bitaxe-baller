@@ -16,6 +16,12 @@ LICENSE_VALIDATE_TIMEOUT_S = float(os.environ.get("RELAY_LICENSE_TIMEOUT_S", "8.
 
 SESSION_TTL_S = int(os.environ.get("RELAY_SESSION_TTL_S", str(24 * 3600)))
 IDLE_DISCONNECT_S = int(os.environ.get("RELAY_IDLE_DISCONNECT_S", str(3600)))
+
+# Demo desktop install_uuid is exempt from the idle-disconnect sweep — its
+# whole job is to be permanently available for App Review reviewers, and a
+# reviewer hitting the 60-second reconnect window during their test would
+# see "load failed" and reject. Empty string disables the exemption.
+DEMO_INSTALL_UUID = os.environ.get("RELAY_DEMO_INSTALL_UUID", "").strip()
 LICENSE_REVALIDATE_S = int(os.environ.get("RELAY_LICENSE_REVALIDATE_S", str(3600)))
 
 REQUEST_TIMEOUT_S = float(os.environ.get("RELAY_REQUEST_TIMEOUT_S", "15.0"))

@@ -486,11 +486,19 @@ async def _send_json(conn: AppConn, payload: dict) -> None:
 async def _idle_disconnect_loop() -> None:
     """Closes app sockets that haven't seen client traffic in IDLE_DISCONNECT_S.
     Keeps long-idle tabs from chewing bandwidth.
+
+    The demo desktop install_uuid (config.DEMO_INSTALL_UUID) is exempt — its
+    raison d'être is to stay permanently available for App Review reviewers,
+    who would otherwise hit the 60-second reconnect window and see the iOS
+    app report "load failed". Empty config string disables the exemption.
     """
     interval = max(30, config.IDLE_DISCONNECT_S // 10)
+    demo_uuid = config.DEMO_INSTALL_UUID
     while True:
         await asyncio.sleep(interval)
         for conn in registry.all_apps():
+            if demo_uuid and conn.install_uuid == demo_uuid:
+                continue
             if conn.idle_seconds() > config.IDLE_DISCONNECT_S:
                 log.info(
                     "app idle disconnect id=%s idle_s=%d",
