@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.13.2"
+version: "1.15.1"
 
 port: 13700
 description: >-
@@ -67,20 +67,24 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
-  v1.13.2 — Umbrel hotfix #2: fixes the "Permission denied: /data/logs"
-  crash loop on first install. Image entrypoint now starts as root,
-  chowns the bind-mounted /data dir to the unprivileged user, then drops
-  privileges via gosu before launching the app (the standard Umbrel
-  pattern). No app code changes — runtime user is still uid 1000.
+  v1.15.1 — first Umbrel release since v1.13.2. Rolls up everything Mac
+  and Windows users have been seeing since: multi-coin Solo Block
+  Probability (auto-detects BCH / BSV / eCash / DGB / NMC from your
+  payout-address prefix), pool grouping on the home dashboard, fleet
+  outlier detection, Gamma 602 auto-tune fix, fleet ROI overlay,
+  multi-coin support (now BCH / BSV / eCash / DGB / NMC alongside BTC),
+  pool profiles (save named configs, apply with one click), QR pair
+  codes for the iOS / Android mobile companion, 900 MHz frequency cap
+  for tuned silicon-lottery winners, form inputs that survive the 5s
+  poll while you're editing them, and a handful of relay / pair-flow
+  hotfixes (smart-punctuation, CORS, demo-desktop reconnect window).
 
 
-  (v1.13.1 — moved off port 5050 conflict; now on 13700 proxy + 13701
-  direct. v1.13.0 — first Umbrel release; native Umbrel app alongside
-  Bitcoin Core / Mempool / Electrs; data persists to
-  ~/umbrel/app-data/bitaxe-baller. New temperature unit switcher
-  (°C ↔ °F). Public leaderboard remains free — top miner per Bitaxe
-  model wins a free month of Pro every month; first draw 2026-06-30.
-  Full notes: https://bitaxeballer.com/changelog.html)
+  Mobile companion is live on Google Play; iOS still working through
+  App Review.
+
+
+  Full notes: https://bitaxeballer.com/changelog.html
 
 # Default credentials block — bitaxe-baller has no login (free tier) or
 # license-key auth (Pro). Umbrel's app_proxy can wrap with auth on the
