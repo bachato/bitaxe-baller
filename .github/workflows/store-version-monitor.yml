@@ -1,0 +1,66 @@
+# Hourly poller for the Bitaxe Baller mobile companion on the App Store
+# and Google Play. Detects when either store publishes a new version (or
+# updates the listing metadata in a way that signals a release went live)
+# and pings #release-changelog on Discord.
+#
+# Built because Google silently approved the v1.0 Android build on
+# 2026-06-03 and we didn't notice for 9 days. This loop closes that gap.
+#
+# Implementation notes:
+#
+# - State file `.github/store-versions.json` is committed back to main on
+#   change. That gives us a free audit log (git blame) and survives across
+#   runner instances without needing GitHub Actions cache.
+#
+# - Discord webhook lives in the existing DISCORD_RELEASE_WEBHOOK secret,
+#   same channel as desktop release pings (notify-discord-on-release.yml).
+#
+# - We use peter-evans/create-pull-request only if we want auto-PR; for
+#   now we just `git commit` directly on main since the only diff is the
+#   small state JSON and there's no security risk to merging blindly.
+#
+# - Schedule: every hour at :17 (avoids the :00 cron-storm). manual
+#   workflow_dispatch is also enabled for ad-hoc kicks.
+
+name: Store version monitor
+
+on:
+  schedule:
+    - cron: '17 * * * *'  # hourly at :17
+  workflow_dispatch:
+
+permissions:
+  contents: write  # for `git push` of the state file
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install google-play-scraper
+        run: pip install --quiet google-play-scraper
+
+      - name: Run monitor
+        env:
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+        run: python3 .github/scripts/store-monitor.py
+
+      - name: Commit state if changed
+        run: |
+          # If git sees no diff in the state file, nothing to do.
+          if git diff --quiet .github/store-versions.json; then
+            echo "No state change; skipping commit."
+            exit 0
+          fi
+          git config user.name "bitaxe-baller-bot"
+          git config user.email "bot@bitaxeballer.com"
+          git add .github/store-versions.json
+          git commit -m "store-monitor: update state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push origin HEAD:main

@@ -1,0 +1,15 @@
+{
+  "android": {
+    "realInstalls": 7,
+    "recentChanges": null,
+    "released": "May 24, 2026",
+    "summary": "Monitor Bitaxe Bitcoin miners from anywhere. Biometrics, charts, Pro history.",
+    "version": "Varies with device"
+  },
+  "ios": {
+    "currentVersionReleaseDate": "2026-06-11T18:55:04Z",
+    "releaseNotes": "",
+    "trackName": "Bitaxe Baller",
+    "version": "1.0"
+  }
+}
