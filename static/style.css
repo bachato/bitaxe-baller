@@ -2269,6 +2269,18 @@
     margin-top: 8px;
   }
   .pair-ttl em { color: var(--text); font-style: normal; }
+  /* Inline error shown when auto-enabling Remote Access fails during a
+     pair attempt — points the user to the manual toggle instead of
+     leaving them with a silent broken pair. */
+  .pair-error {
+    color: var(--danger, #d04040);
+    background: rgba(208, 64, 64, 0.10);
+    border: 1px solid rgba(208, 64, 64, 0.30);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
   @media (max-width: 520px) {
     .pair-grid { grid-template-columns: 1fr; justify-items: center; }
     .pair-code-wrap { width: 100%; }

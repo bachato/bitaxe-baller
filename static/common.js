@@ -712,6 +712,44 @@ async function _handlePairNewClick() {
   btn.disabled = true;
   btn.textContent = 'Generating code…';
   try {
+    // BEFORE pair-init: Remote Access must be ON for paired devices to see
+    // any miners through the relay. The pair token mints either way, but
+    // without an active relay connection on this desktop the phone gets a
+    // blank fleet view. We hit this trap in real-world testing on 2026-06-12
+    // (Nathan paired successfully, saw 0 miners, then realized Remote
+    // Access toggle was off — a brand-new user would dead-end at that
+    // confusion). Fix: check first, auto-enable if needed, toast the user.
+    //
+    // is_pro_active() is required on the server side for /api/remote/enable,
+    // so a free user clicking pair (their button mints a free-tier 1-miner
+    // token) skips the auto-enable step naturally — the server rejects and
+    // we proceed without it.
+    try {
+      const remote = await api('/api/remote/status');
+      const alreadyOn = !!(remote && remote.configured && remote.configured.enabled);
+      const proActive = !!(remote && remote.pro_active);
+      if (proActive && !alreadyOn) {
+        btn.textContent = 'Enabling remote access…';
+        await api('/api/remote/enable', 'POST', {});
+        toast('Remote access enabled — needed for paired devices to see your fleet.');
+        btn.textContent = 'Generating code…';
+      }
+    } catch (e) {
+      // Auto-enable failed (license/relay issue, not the user's fault yet).
+      // Surface a clear hint instead of silently continuing to a dead-end
+      // pair, and bail so the user can fix Remote Access manually.
+      const display = document.getElementById('pair-token-display');
+      if (display) {
+        display.hidden = false;
+        display.innerHTML = '<div class="pair-error">Could not enable Remote Access automatically: ' +
+          escapeHtml(e.message || String(e)) +
+          '. Toggle it on in the Remote Access section above, then click Pair a new device again.</div>';
+      }
+      btn.disabled = false;
+      btn.textContent = 'Pair a new device';
+      return;
+    }
+
     const resp = await api('/api/relay/pair-init', 'POST', {});
     const token = resp.pair_token || '';
     const expiresIn = resp.expires_in || 60;
