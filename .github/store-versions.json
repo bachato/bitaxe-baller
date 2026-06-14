@@ -7,9 +7,9 @@
     "version": "Varies with device"
   },
   "ios": {
-    "currentVersionReleaseDate": "2026-06-11T18:55:04Z",
-    "releaseNotes": "",
+    "currentVersionReleaseDate": "2026-06-12T21:51:43Z",
+    "releaseNotes": "v1.2 \u2014 Tap \"Scan QR code\" on the pair screen, point your camera at the QR shown in the desktop's Pro panel, you're paired in three steps. No more typing the 22-character pair code. Manual entry still works as a fallback.",
     "trackName": "Bitaxe Baller",
-    "version": "1.0"
+    "version": "1.2"
   }
 }
