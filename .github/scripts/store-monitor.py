@@ -143,32 +143,50 @@ def save_state(state):
     STATE_PATH.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
+def _safe_post(msg):
+    """Post to Discord, but swallow any HTTP errors so a broken webhook
+    can't prevent us from saving the new state. Discord 403s have been
+    observed when Cloudflare blocks GitHub Actions runner IPs / UA, or
+    when the webhook URL itself has been revoked. Either way the state
+    file (which doubles as our audit log) MUST update or we'll re-detect
+    the same change every hour without ever recording it."""
+    try:
+        post_discord(msg)
+    except Exception as e:
+        print(f"Discord post failed (state still being saved): {e}", file=sys.stderr)
+
+
 def main():
     state = load_state()
     old_ios = state.get("ios") or {}
     old_android = state.get("android") or {}
 
+    # ----- iOS — keep the fetch in its own try so a Discord failure
+    # below doesn't poison the new_ios value the way it did in the
+    # original (single big try/except). -----
+    new_ios = old_ios or None
     try:
         new_ios = fetch_app_store()
-        if ios_changed(old_ios, new_ios):
-            print(f"iOS change: {old_ios.get('version')} -> {new_ios.get('version')}")
-            post_discord(fmt_ios_msg(new_ios))
     except Exception as e:
         print(f"App Store fetch failed: {e}", file=sys.stderr)
-        new_ios = old_ios or None
+    if new_ios and ios_changed(old_ios, new_ios):
+        print(f"iOS change: {old_ios.get('version')} -> {new_ios.get('version')}")
+        _safe_post(fmt_ios_msg(new_ios))
 
+    # ----- Android — same shape -----
+    new_android = old_android or None
     try:
         new_android = fetch_play_store()
-        changed_fields = []
-        for field in ("recentChanges", "released", "summary"):
-            if old_android.get(field) != new_android.get(field):
-                changed_fields.append(field)
-        if android_changed(old_android, new_android):
-            print(f"Android change in fields: {changed_fields}")
-            post_discord(fmt_android_msg(new_android, changed_fields))
     except Exception as e:
         print(f"Play Store fetch failed: {e}", file=sys.stderr)
-        new_android = old_android or None
+    if new_android:
+        changed_fields = [
+            f for f in ("recentChanges", "released", "summary")
+            if old_android.get(f) != new_android.get(f)
+        ]
+        if android_changed(old_android, new_android):
+            print(f"Android change in fields: {changed_fields}")
+            _safe_post(fmt_android_msg(new_android, changed_fields))
 
     new_state = {}
     if new_ios:
