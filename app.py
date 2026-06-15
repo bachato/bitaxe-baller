@@ -30,7 +30,7 @@ import relay_client
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.16.0"
+APP_VERSION = "1.16.1"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -1067,7 +1067,11 @@ def device_summary(s):
 # on-screen confetti fires for all users.
 
 BLOCK_FINDS_PATH = os.path.join(_DATA_DIR, "block_finds.json")
-_block_finds_lock = threading.Lock()
+# RLock (reentrant), NOT plain Lock — _block_finds_pending / _recent /
+# _record / _ack all acquire this lock and then call _block_finds_load()
+# which also acquires it. With a plain Lock that's an instant deadlock
+# on the first request (caught in v1.16.0 within an hour of release).
+_block_finds_lock = threading.RLock()
 _block_finds_cache: list | None = None  # lazy-loaded on first read
 
 
