@@ -30,7 +30,7 @@ import relay_client
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.16.1"
+APP_VERSION = "1.16.2"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -1215,6 +1215,17 @@ alerts_lock = threading.Lock()
 # last time we fired that alert. Used purely for cooldown gating.
 _alerts_last_fired: dict = {}
 
+# Quiet period after process start. Prevents the post-restart storm: when
+# the app launches fresh, the in-memory _alerts_last_fired dict is empty,
+# so the very first poll cycle would fire an alert for every device whose
+# state currently meets a trigger (caught in v1.16.0 — Nathan got 5 emails
+# the moment he saved his address because the app had just restarted into
+# v1.16.1 and the cooldown table was empty). Suppress ALL channel firings
+# for the first 60s so the poll loop can baseline what's currently true
+# without surprising the user.
+ALERTS_STARTUP_QUIET_S = 60
+_alerts_startup_at = time.time()
+
 
 def _alerts_get_config() -> dict:
     with config_lock:
@@ -1314,12 +1325,30 @@ def _alerts_post_email(email_to: str, title: str, body: str) -> tuple:
 
 
 def _alerts_should_fire(ip: str, trigger: str, cooldown_s: int) -> bool:
-    """Return True iff this (ip, trigger) hasn't fired within the cooldown window."""
+    """Return True iff this (ip, trigger) hasn't fired within the cooldown window.
+
+    Two extra guards on top of the cooldown:
+      1. Startup quiet period — during the first ALERTS_STARTUP_QUIET_S
+         seconds of process lifetime we suppress all firings + record the
+         current time as the "last fired" so the cooldown then runs from
+         restart, not from epoch. This is what prevents the post-restart
+         alert storm.
+      2. Normal cooldown — record on success so the next fire is gated.
+    """
+    now = time.time()
+    if (now - _alerts_startup_at) < ALERTS_STARTUP_QUIET_S:
+        # Still in the startup quiet window. Record the trigger time so
+        # the cooldown clock starts ticking from "now" — once the quiet
+        # window passes, the user gets fresh alerts for any condition
+        # that's still tripping, but no historical-state flood.
+        with alerts_lock:
+            _alerts_last_fired.setdefault(ip, {})[trigger] = now
+        return False
     with alerts_lock:
         last = _alerts_last_fired.get(ip, {}).get(trigger, 0)
-        if time.time() - last < cooldown_s:
+        if now - last < cooldown_s:
             return False
-        _alerts_last_fired.setdefault(ip, {})[trigger] = time.time()
+        _alerts_last_fired.setdefault(ip, {})[trigger] = now
         return True
 
 
@@ -3283,12 +3312,15 @@ def api_alerts_config_set():
                     cur["rules"][k] = max(0, min(200, int(v)))
                 except (TypeError, ValueError):
                     return jsonify({"error": f"rules.{k} must be an integer"}), 400
+    new_channel_added = False  # track whether we crossed an empty → set boundary
     if isinstance(body.get("channels"), dict):
         webhook = body["channels"].get("discord_webhook")
         if webhook is not None:
             webhook = str(webhook).strip()
             if webhook and not webhook.startswith("https://discord.com/api/webhooks/"):
                 return jsonify({"error": "Discord webhook URL must start with https://discord.com/api/webhooks/"}), 400
+            if webhook and not (cur["channels"].get("discord_webhook") or "").strip():
+                new_channel_added = True
             cur["channels"]["discord_webhook"] = webhook
         email_to = body["channels"].get("email_to")
         if email_to is not None:
@@ -3298,8 +3330,31 @@ def api_alerts_config_set():
             # authoritative validation when the alert actually fires.
             if email_to and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_to):
                 return jsonify({"error": "Email address looks malformed"}), 400
+            if email_to and not (cur["channels"].get("email_to") or "").strip():
+                new_channel_added = True
             cur["channels"]["email_to"] = email_to
     _alerts_save_config(cur)
+
+    # Suppress the alert-storm-on-first-channel-add. Nathan caught this in
+    # v1.16.0: he restarted the app (which cleared the in-memory cooldown
+    # state), then added his email address to the alerts panel. The next
+    # poll fired alerts for every miner that already had a tripping
+    # condition — five emails in one shot, all for state that had already
+    # been pinged to Discord. Pre-arm every (device, trigger) cooldown
+    # entry to NOW whenever a NEW channel is being added so the user's
+    # fresh destination only sees alerts that trip AFTER they enabled it.
+    # The existing channel's pings already covered the historical state.
+    if new_channel_added:
+        cooldown_s = int(cur.get("cooldown_minutes", 30)) * 60  # for log only
+        with alerts_lock:
+            now = time.time()
+            with state_lock:
+                for dev_ip in state.keys():
+                    _alerts_last_fired.setdefault(dev_ip, {})
+                    for trig in ("offline", "vr_temp", "asic_temp"):
+                        _alerts_last_fired[dev_ip][trig] = now
+        print(f"[alerts] channel added — primed cooldowns for {len(state)} device(s) (~{cooldown_s // 60}min quiet)")
+
     return jsonify({"ok": True})
 
 

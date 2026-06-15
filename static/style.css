@@ -2208,6 +2208,7 @@
     color: var(--dim);
   }
   .alerts-row input[type="text"],
+  .alerts-row input[type="email"],
   .alerts-row input[type="number"] {
     padding: 6px 9px;
     background: var(--bg-2);
@@ -2216,7 +2217,8 @@
     font-family: inherit;
     font-size: 12px;
   }
-  .alerts-row input[type="text"] { flex: 1 1 300px; min-width: 200px; }
+  .alerts-row input[type="text"],
+  .alerts-row input[type="email"] { flex: 1 1 300px; min-width: 200px; }
   .alerts-row input[type="number"] { width: 70px; }
   .alerts-row input:focus { outline: none; border-color: var(--accent); }
   .alerts-row button {
