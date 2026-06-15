@@ -551,10 +551,22 @@ _BLOCK_REWARDS = {
 
 # Stratum URL needles → chain id. First match wins, so list more-specific
 # chains before more-generic ones. Anything unmatched falls through to BTC.
+#
+# Coverage notes (2026-06-15 expansion):
+# - DGB: added DGB-focused single-coin pools (digihash, dgbpool,
+#   weminemore) and the DGB-leaning multi-coin pool letsmine.it
+#   (Nathan's Bitaxe_004 case that prompted this audit).
+# - XEC: added xeggex (multi-coin including XEC) and viabtc (the
+#   biggest XEC pool by hashrate).
+# - Don't add genuinely-multi-coin hostnames without port qualifiers
+#   (e.g. coinotron, 2mars) — they'd misclassify other coins served
+#   from the same host. We'd need a (host, port) → chain table for
+#   those; punted until a user hits the case.
 _CHAIN_PATTERNS = [
-    ("xec", ("xec.", "-xec.", "ecash", "bcha")),
+    ("xec", ("xec.", "-xec.", "ecash", "bcha", "xeggex", "viabtc")),
     ("bsv", ("bsv.", "-bsv.", "bitcoin-sv", "bitcoin sv")),
-    ("dgb", ("dgb.", "-dgb.", "digibyte")),
+    ("dgb", ("dgb.", "-dgb.", "digibyte",
+             "digihash", "dgbpool", "weminemore", "letsmine")),
     ("nmc", ("nmc.", "-nmc.", "namecoin")),
     # BCH last among the alts — its "bch" needle is a substring of common
     # solohash hostnames, which is OK because solohash already routes by
@@ -568,11 +580,14 @@ _CHAIN_TTL_SEC = 600
 def _infer_chain(stratum_url, stratum_port=0, stratum_user=""):
     """
     Detect the chain a miner is pointed at. Priority order, most reliable first:
-      1. The stratumUser's payout-address prefix (CashAddr / BIP-21 style).
-         Pools require the worker name start with the actual payout address, so
-         the address format is a definitive signal — "bitcoincash:..." is BCH,
-         "ecash:..." is XEC, etc. Pool URLs rebrand and multi-coin pools muddy
-         the URL signal, but a CashAddr-encoded address can only be one coin.
+      1. The stratumUser's payout-address prefix (CashAddr / BIP-21 style,
+         or bech32 chain-tagged like 'dgb1...'). Pools require the worker
+         name start with the actual payout address, so the address format
+         is a definitive signal — "bitcoincash:..." is BCH, "ecash:..." is
+         XEC, "dgb1..." is DGB. Pool URLs rebrand and multi-coin pools muddy
+         the URL signal, but a chain-tagged address can only be one coin.
+         Legacy base58 prefixes (BTC '1'/'3', DGB 'D', DOGE 'D', LTC 'L')
+         are ambiguous so we don't read them — pool URL handles those.
       2. URL needles (legacy multi-coin pool subdomains like xec.pool.com).
       3. solohash.co.uk port heuristic (3337 = BCH, 3333 = BTC).
       4. Fall through to BTC.
@@ -582,6 +597,10 @@ def _infer_chain(stratum_url, stratum_port=0, stratum_user=""):
         return "bch"
     if user.startswith("ecash:"):
         return "xec"
+    # DGB bech32 addresses start with 'dgb1' — unambiguous.
+    # (Legacy 'D...' base58 collides with DOGE; don't read those.)
+    if user.startswith("dgb1"):
+        return "dgb"
     if not stratum_url:
         return "btc"
     u = str(stratum_url).lower()
@@ -593,6 +612,30 @@ def _infer_chain(stratum_url, stratum_port=0, stratum_user=""):
         if any(n in u for n in needles):
             return chain
     return "btc"
+
+
+# Test fixtures for chain detection — real-world (URL, port, user) tuples
+# from production miners + known pool docs. Used by tests/test_chain.py
+# to catch regressions when we touch _CHAIN_PATTERNS. New chains should
+# add at least one entry; new pool URLs that flow through here should
+# also append so they're protected forever.
+_CHAIN_INFERENCE_FIXTURES = [
+    # (label, url, port, user, expected_chain)
+    ("Public Pool BTC",        "public-pool.io",          21496, "bc1q...x.worker",        "btc"),
+    ("Ocean BTC",              "mine.ocean.xyz",          3334,  "bc1q...x.worker",        "btc"),
+    ("CKPool BCH",             "bch.ckpool.org",          3333,  "bitcoincash:qz...x",     "bch"),
+    ("solohash BCH (port)",    "ng.solohash.co.uk",       3337,  "qz...x.worker",          "bch"),
+    ("solohash BTC (port)",    "ng.solohash.co.uk",       3333,  "bc1q...x.worker",        "btc"),
+    ("letsmine DGB (Nathan)",  "us1.letsmine.it",         3335,  "DALF5...Bitaxe_004",     "dgb"),
+    ("digihash DGB",           "pool.digihash.co",        3008,  "DABCxyz.worker",         "dgb"),
+    ("dgb1 bech32 worker",     "any.pool.example",        3333,  "dgb1qabcxyz.worker",     "dgb"),
+    ("ecash: address",         "any.pool.example",        3333,  "ecash:qz...x",           "xec"),
+    ("viabtc XEC",             "xec.viabtc.com",          3333,  "user.worker",            "xec"),
+    ("bsv pool",               "stratum.bsv.example",     3333,  "1abc...x.worker",        "bsv"),
+    ("nmc pool",               "namecoin.example",        3333,  "N...x.worker",           "nmc"),
+    ("unmatched → BTC",        "weirdpool.example",       3333,  "bc1q...x.worker",        "btc"),
+]
+
 
 def _parse_diff(value):
     """Firmware reports diffs as strings like '1.68G', '16.69G', '682.42M'. Returns float."""
@@ -711,9 +754,20 @@ def _fetch_nmc_stats():
     # The math we expose is still useful (per-hash odds at the device's
     # hashrate) but a savvy reader should remember: if you're solo NMC,
     # you're getting BTC rewards too whenever a BTC block hits.
+    #
+    # Source fallback: chainz.cryptoid.info silently dropped NMC sometime
+    # around mid-2026 ("Blockchain 'nmc' unknown or hosting expired") and
+    # there's no clean free alternative for Namecoin-specific difficulty.
+    # Since NMC is merge-mined with BTC, BTC's difficulty is virtually
+    # identical (small lag during retargets, doesn't matter for years-to-
+    # block math). Use chainz when it works, BTC's diff when it doesn't.
     diff = _fetch_chainz_difficulty("nmc")
     if diff <= 0:
-        return None
+        btc_stats = _CHAIN_FETCHERS["btc"]() if _CHAIN_FETCHERS.get("btc") else None
+        if btc_stats and btc_stats.get("difficulty", 0) > 0:
+            diff = btc_stats["difficulty"]
+        else:
+            return None
     return {
         "chain": "nmc", "name": "Namecoin", "symbol": "NMC",
         "difficulty": diff,
