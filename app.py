@@ -1008,11 +1008,17 @@ def device_summary(s):
 # ASIC temp). 30-min cooldown per (device, trigger) pair so a hot Gamma
 # doesn't spam the channel every 5 seconds.
 #
-# Future: SMTP email channel, HW-error-rate-sustained trigger, custom rules.
+# v2 (v1.16.0): email channel routed through bitaxeballer.com. The site
+# server (which has the Resend API key) validates the license and sends
+# via Resend. Keeps the API key off user desktops.
+#
+# Future: SMS via Twilio, mobile push via APNs+FCM (after the mobile
+# companion stabilizes), HW-error-rate-sustained trigger, custom rules.
 ALERTS_DEFAULT_CONFIG = {
     "enabled": True,
     "channels": {
         "discord_webhook": "",  # https://discord.com/api/webhooks/<id>/<token>
+        "email_to": "",         # one address; routed through bitaxeballer.com
     },
     "rules": {
         "offline_minutes": 5,
@@ -1083,6 +1089,49 @@ def _alerts_post_discord(webhook_url: str, title: str, body: str) -> tuple:
         return False, f"{type(e).__name__}: {str(e)[:80]}"
 
 
+# Email alert relay through bitaxeballer.com. The site validates the
+# license + sends via Resend, which keeps the Resend API key OFF user
+# machines (publishing it would let anyone empty our send quota). The
+# desktop just sends a small JSON blob; the site is the trusted side.
+_ALERTS_EMAIL_RELAY_URL = "https://bitaxeballer.com/api/alerts/email"
+
+def _alerts_post_email(email_to: str, title: str, body: str) -> tuple:
+    """Forward an alert to the user's email through the bitaxeballer.com
+    relay. Returns (ok, msg). Like _alerts_post_discord, this never
+    raises — the alert pipeline must stay resilient to network blips.
+    Requires an active Pro license; the site rejects unauthenticated
+    requests with a 401 / 402."""
+    email_to = (email_to or "").strip()
+    if not email_to or "@" not in email_to:
+        return False, "Invalid or missing email address"
+    lic = _get_license() or {}
+    license_key = (lic.get("key") or "").strip()
+    if not license_key:
+        return False, "Email alerts require an active Pro license"
+    try:
+        r = requests.post(
+            _ALERTS_EMAIL_RELAY_URL,
+            json={
+                "license_key": license_key,
+                "email_to": email_to,
+                "title": title[:256],
+                "body": body[:4000],
+            },
+            timeout=8,
+            headers={"User-Agent": f"BitaxeBaller/{APP_VERSION}"},
+        )
+        if r.status_code == 200:
+            return True, "delivered"
+        # Site returns descriptive JSON errors like {"error": "..."}; surface that.
+        try:
+            err = r.json().get("error") or r.text
+        except Exception:
+            err = r.text
+        return False, f"Email HTTP {r.status_code}: {str(err)[:120]}"
+    except requests.RequestException as e:
+        return False, f"{type(e).__name__}: {str(e)[:80]}"
+
+
 def _alerts_should_fire(ip: str, trigger: str, cooldown_s: int) -> bool:
     """Return True iff this (ip, trigger) hasn't fired within the cooldown window."""
     with alerts_lock:
@@ -1095,13 +1144,27 @@ def _alerts_should_fire(ip: str, trigger: str, cooldown_s: int) -> bool:
 
 def _alerts_dispatch(label: str, ip: str, trigger: str, title: str, body: str) -> None:
     """Fan out to all configured channels. Logs to the device event log so
-    the user has an in-app record of every alert fired."""
+    the user has an in-app record of every alert fired. Channels fire in
+    parallel logically (sequential because the GIL is fine here) — a failure
+    on one doesn't prevent the others. Status lines include each channel's
+    outcome so a user grep'ing logs can see which paths worked."""
     cfg = _alerts_get_config()
     if not cfg.get("enabled"):
         return
-    webhook = cfg.get("channels", {}).get("discord_webhook", "")
-    ok, msg = _alerts_post_discord(webhook, title, body) if webhook else (False, "no channel configured")
-    log_event(ip, f"[alert] {trigger}: {msg}")
+    channels = cfg.get("channels", {}) or {}
+    webhook = (channels.get("discord_webhook") or "").strip()
+    email_to = (channels.get("email_to") or "").strip()
+
+    parts = []
+    if webhook:
+        ok, msg = _alerts_post_discord(webhook, title, body)
+        parts.append(f"discord={'ok' if ok else f'fail({msg})'}")
+    if email_to:
+        ok, msg = _alerts_post_email(email_to, title, body)
+        parts.append(f"email={'ok' if ok else f'fail({msg})'}")
+    if not parts:
+        parts.append("no channel configured")
+    log_event(ip, f"[alert] {trigger}: {' · '.join(parts)}")
 
 
 def _alerts_check(ip: str, label: str, summary: dict) -> None:
@@ -1112,7 +1175,9 @@ def _alerts_check(ip: str, label: str, summary: dict) -> None:
     cfg = _alerts_get_config()
     if not cfg.get("enabled"):
         return
-    if not cfg.get("channels", {}).get("discord_webhook"):
+    # Need at least one configured channel — Discord webhook OR email.
+    channels = cfg.get("channels", {}) or {}
+    if not (channels.get("discord_webhook") or channels.get("email_to")):
         return  # no destination, nothing to do
 
     rules = cfg["rules"]
