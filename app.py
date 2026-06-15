@@ -8,6 +8,7 @@ Then your default browser opens to the dashboard. Add devices and tune.
 
 import base64
 import json
+import re
 import socket
 import sqlite3
 import sys
@@ -3016,7 +3017,9 @@ def api_device_preset():
 def api_alerts_config_get():
     """Return the alerts config. Webhook URLs are not secrets in the strict
     sense (anyone with one can post to your Discord channel), but they're
-    sensitive enough that we mask them in the response by default."""
+    sensitive enough that we mask them in the response by default. Email
+    addresses are NOT masked — they're the user's own and showing the
+    saved value is the obvious UX."""
     cfg = _alerts_get_config()
     # Mask the webhook so it never round-trips back through XHR or screen
     # recordings. The UI shows the masked value as a placeholder; if the user
@@ -3025,6 +3028,8 @@ def api_alerts_config_get():
     if webhook:
         cfg["channels"]["discord_webhook_masked"] = webhook[:36] + "…" + webhook[-6:] if len(webhook) > 50 else "***"
         cfg["channels"]["discord_webhook"] = ""
+    # Email address: keep visible so the user knows what's saved.
+    cfg["channels"].setdefault("email_to", "")
     return jsonify({"pro_active": is_pro_active(), **cfg})
 
 
@@ -3055,6 +3060,15 @@ def api_alerts_config_set():
             if webhook and not webhook.startswith("https://discord.com/api/webhooks/"):
                 return jsonify({"error": "Discord webhook URL must start with https://discord.com/api/webhooks/"}), 400
             cur["channels"]["discord_webhook"] = webhook
+        email_to = body["channels"].get("email_to")
+        if email_to is not None:
+            email_to = str(email_to).strip()
+            # Loose email regex — full RFC 5322 is overkill for our use; we
+            # just want to catch obvious typos. The site-side relay does the
+            # authoritative validation when the alert actually fires.
+            if email_to and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_to):
+                return jsonify({"error": "Email address looks malformed"}), 400
+            cur["channels"]["email_to"] = email_to
     _alerts_save_config(cur)
     return jsonify({"ok": True})
 
@@ -3062,19 +3076,40 @@ def api_alerts_config_set():
 @app.route("/api/alerts/test", methods=["POST"])
 def api_alerts_test():
     """Send a test message through configured channels. Useful for verifying
-    the Discord webhook is wired up before relying on real alerts."""
+    a channel is wired up before relying on real alerts. Optional body
+    {"channel": "discord"|"email"} fires only that channel; default fires
+    every channel that has a value configured."""
     if not is_pro_active():
         return jsonify({"error": "Alerts are a Pro feature.", "code": "pro_required"}), 402
+    body = request.get_json(silent=True) or {}
+    target = (body.get("channel") or "").strip().lower()
     cfg = _alerts_get_config()
-    webhook = cfg.get("channels", {}).get("discord_webhook", "")
-    if not webhook:
-        return jsonify({"error": "No Discord webhook configured"}), 400
-    ok, msg = _alerts_post_discord(
-        webhook,
-        "✓ Bitaxe Baller test alert",
-        "If you can read this, your Discord webhook is correctly wired up. Real alerts will fire when devices go offline or temps cross thresholds.",
+    channels = cfg.get("channels", {}) or {}
+    webhook = (channels.get("discord_webhook") or "").strip()
+    email_to = (channels.get("email_to") or "").strip()
+
+    title = "✓ Bitaxe Baller test alert"
+    body_text = (
+        "If you can read this, your alert channel is correctly wired up. "
+        "Real alerts will fire when devices go offline or temps cross thresholds."
     )
-    return jsonify({"ok": ok, "message": msg}), (200 if ok else 502)
+
+    results = {}
+    fired_any = False
+    if (not target or target == "discord") and webhook:
+        ok, msg = _alerts_post_discord(webhook, title, body_text)
+        results["discord"] = {"ok": ok, "message": msg}
+        fired_any = True
+    if (not target or target == "email") and email_to:
+        ok, msg = _alerts_post_email(email_to, title, body_text)
+        results["email"] = {"ok": ok, "message": msg}
+        fired_any = True
+
+    if not fired_any:
+        return jsonify({"error": "No alert channel configured"}), 400
+    # 200 if every channel that fired succeeded; 502 if any failed
+    all_ok = all(r["ok"] for r in results.values())
+    return jsonify({"ok": all_ok, "results": results}), (200 if all_ok else 502)
 
 
 @app.route("/api/devices/autotune/start", methods=["POST"])

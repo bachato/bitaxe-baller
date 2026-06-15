@@ -724,9 +724,15 @@ async function loadAlertsConfig() {
       </label>
 
       <div class="alerts-row">
-        <span class="alerts-label">channel</span>
-        <input type="text" id="alerts-webhook" placeholder="${masked ? 'webhook saved: ' + escapeHtml(masked) + ' — paste a new URL to replace' : 'https://discord.com/api/webhooks/...'}" data-tip="Paste the full Discord webhook URL. Get one from Discord server settings → Integrations → Webhooks → New Webhook. Leave blank to disable Discord alerts.">
+        <span class="alerts-label">discord</span>
+        <input type="text" id="alerts-webhook" placeholder="${masked ? 'saved: ' + escapeHtml(masked) + ' — paste a new URL to replace' : 'https://discord.com/api/webhooks/...'}" data-tip="Paste the full Discord webhook URL. Get one from Discord server settings → Integrations → Webhooks → New Webhook. Leave blank to disable Discord alerts.">
         <button type="button" id="alerts-test" data-tip="Send a test message to verify the webhook works.">test</button>
+      </div>
+
+      <div class="alerts-row">
+        <span class="alerts-label">email</span>
+        <input type="email" id="alerts-email" value="${escapeHtml(channels.email_to || '')}" placeholder="you@example.com" data-tip="Receive the same alerts by email. Routed through bitaxeballer.com (your license validates server-side, the Resend API key stays off your machine). 20 messages per hour cap as spam defense.">
+        <button type="button" id="alerts-test-email" data-tip="Send a test email to verify delivery.">test</button>
       </div>
 
       <div class="alerts-row">
@@ -749,12 +755,14 @@ async function loadAlertsConfig() {
   `;
 
   document.getElementById('alerts-form').addEventListener('submit', saveAlertsConfig);
-  document.getElementById('alerts-test').addEventListener('click', testAlertsWebhook);
+  document.getElementById('alerts-test').addEventListener('click', () => testAlertsChannel('discord'));
+  document.getElementById('alerts-test-email').addEventListener('click', () => testAlertsChannel('email'));
 }
 
 async function saveAlertsConfig(ev) {
   ev.preventDefault();
   const webhookField = document.getElementById('alerts-webhook').value.trim();
+  const emailField = document.getElementById('alerts-email').value.trim();
   // Inputs are shown in the user's chosen unit but the server always stores
   // °C. Convert F → C before submit so the alert thresholds remain unit-
   // stable regardless of which display unit the user picked.
@@ -769,7 +777,13 @@ async function saveAlertsConfig(ev) {
       asic_temp_c: Math.round(getTempUnit() === 'F' ? fToC(asicInput) : asicInput),
     },
   };
-  if (webhookField) payload.channels = { discord_webhook: webhookField };
+  // Only include channel keys that have a value OR were explicitly cleared
+  // (so saving an empty email field removes the saved address).
+  const channels = {};
+  if (webhookField) channels.discord_webhook = webhookField;
+  // Always send email_to so the user can clear it by saving with the field empty.
+  channels.email_to = emailField;
+  payload.channels = channels;
   const msg = document.getElementById('alerts-saved-msg');
   msg.textContent = 'saving…';
   msg.style.color = '';
@@ -785,22 +799,38 @@ async function saveAlertsConfig(ev) {
   }
 }
 
-async function testAlertsWebhook() {
-  const btn = document.getElementById('alerts-test');
+// Fires a test alert through the given channel ("discord" or "email") so
+// the user can confirm wiring before relying on real triggers. Reminds
+// them to save first if the input has been edited but not committed —
+// /api/alerts/test reads what's saved server-side, not the live field.
+async function testAlertsChannel(channel) {
+  const btnId = channel === 'email' ? 'alerts-test-email' : 'alerts-test';
+  const fieldId = channel === 'email' ? 'alerts-email' : 'alerts-webhook';
+  const channelLabel = channel === 'email' ? 'email' : 'Discord';
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = 'sending…';
-  // If the user typed a new webhook but hasn't saved yet, that won't be sent —
-  // remind them to save first.
-  const typed = document.getElementById('alerts-webhook').value.trim();
-  if (typed) {
-    toast('Save your webhook first, then test.', 'warn', 4000);
+  const typed = document.getElementById(fieldId).value.trim();
+  // For Discord the saved value is always empty (we mask it), so we can only
+  // tell "unsaved edit" by checking if the field has any value. For email
+  // the saved value is shown in-place, so we compare against the load-time
+  // value — but to keep things simple, just require a save before testing
+  // when the field has been touched at all and the user pasted something
+  // different than what's stored. Best-effort heuristic: warn if typed.
+  if (channel === 'discord' && typed) {
+    toast('Save your Discord webhook first, then test.', 'warn', 4000);
     btn.disabled = false; btn.textContent = original;
     return;
   }
   try {
-    const res = await api('/api/alerts/test', 'POST', {});
-    if (res.ok) toast('Test alert delivered to Discord ✓', 'info');
-    else toast('Test failed: ' + (res.message || 'unknown'), 'error', 6000);
+    const res = await api('/api/alerts/test', 'POST', { channel });
+    if (res.ok) {
+      toast(`Test ${channelLabel} alert delivered ✓`, 'info');
+    } else {
+      const r = (res.results || {})[channel] || {};
+      toast(`Test failed: ${r.message || 'unknown'}`, 'error', 6000);
+    }
   } catch (e) {
     toast('Test failed: ' + e.message, 'error', 6000);
   } finally {
