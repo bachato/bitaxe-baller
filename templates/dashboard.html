@@ -22,6 +22,24 @@
 </head>
 <body>
 
+<!-- Block-found celebration overlay. Hidden by default; revealed by
+     /js/block-find-celebration in static/common.js when /api/block-finds
+     returns a pending (unack'd) record. Sticks around until the user
+     dismisses — continuous confetti rain until they do. -->
+<div id="block-found-overlay" class="block-found-overlay" hidden>
+  <canvas id="block-found-confetti" class="block-found-confetti" aria-hidden="true"></canvas>
+  <div class="block-found-card" role="dialog" aria-modal="true" aria-labelledby="block-found-title">
+    <div class="block-found-emoji">🎉🎉🎉</div>
+    <h2 id="block-found-title" class="block-found-headline">BLOCK FOUND!</h2>
+    <p class="block-found-detail" id="block-found-detail">…</p>
+    <p class="block-found-sub" id="block-found-sub"></p>
+    <div class="block-found-actions">
+      <button type="button" class="block-found-dismiss" id="block-found-dismiss">Frame it · I see it</button>
+    </div>
+    <p class="block-found-stack" id="block-found-stack" hidden></p>
+  </div>
+</div>
+
 <div id="update-banner" class="update-banner" hidden>
   <span class="arrow">⬆</span>
   <span class="msg">Bitaxe Baller update available — <strong class="version">v…</strong></span>
@@ -191,6 +209,7 @@
 <div class="toast-host" id="toasts"></div>
 
 <script src="{{ url_for('static', filename='qrcode.min.js') }}"></script>
+<script src="{{ url_for('static', filename='confetti.min.js') }}"></script>
 <script src="{{ url_for('static', filename='common.js') }}"></script>
 <script>
 const pageStart = Date.now();
@@ -963,6 +982,147 @@ setInterval(() => {
 
 poll();
 setInterval(poll, 5000);
+
+// ---------- Block-found celebration ----------
+//
+// Polls /api/block-finds on the same 5s cadence as the device list. When
+// a pending (unack'd) find appears, drops a sticky overlay + continuous
+// canvas-confetti rain. The user MUST click Dismiss to make it go away —
+// no auto-fade. ack POSTs to /api/block-finds/ack so the find is marked
+// acknowledged server-side; reloads from then on won't re-show it.
+//
+// Multi-find handling: if more than one pending find exists, we show the
+// newest one in the headline and list the rest in a small "stack" line.
+// Dismiss ack's just the displayed one — next poll surfaces the next one
+// up, so the user can confirm each individually.
+
+(function () {
+  let _activeFindId = null;
+  let _confettiInterval = null;
+  let _confettiInstance = null;
+
+  function _fireConfetti(canvas) {
+    if (typeof confetti !== 'function') return;
+    if (!_confettiInstance) {
+      _confettiInstance = confetti.create(canvas, { resize: true, useWorker: false });
+    }
+    // Two source corners — looks more like a celebration than a single
+    // fountain. Random tilt for organic spread.
+    _confettiInstance({
+      particleCount: 60,
+      angle: 60,
+      spread: 65,
+      origin: { x: 0, y: 0.85 },
+      colors: ['#f7931a', '#ffb84d', '#ffe082', '#52d273', '#67aaff'],
+      ticks: 220,
+      gravity: 0.9,
+    });
+    _confettiInstance({
+      particleCount: 60,
+      angle: 120,
+      spread: 65,
+      origin: { x: 1, y: 0.85 },
+      colors: ['#f7931a', '#ffb84d', '#ffe082', '#52d273', '#67aaff'],
+      ticks: 220,
+      gravity: 0.9,
+    });
+  }
+
+  function _showOverlay(find, pendingCount) {
+    const overlay = document.getElementById('block-found-overlay');
+    const canvas  = document.getElementById('block-found-confetti');
+    const detail  = document.getElementById('block-found-detail');
+    const sub     = document.getElementById('block-found-sub');
+    const stack   = document.getElementById('block-found-stack');
+    if (!overlay || !canvas || !detail) return;
+
+    _activeFindId = find.id;
+
+    const heightStr = find.block_height
+      ? ` at height ${find.block_height.toLocaleString()}`
+      : '';
+    detail.innerHTML = `<strong>${escapeHtml(find.device_label || find.device_ip)}</strong> just solved a <strong>${escapeHtml(find.chain_name)}</strong> block${heightStr}.`;
+
+    const when = find.found_at
+      ? new Date(find.found_at * 1000).toLocaleString()
+      : '';
+    sub.innerHTML = `Best share difficulty <strong>${escapeHtml(find.best_diff)}</strong>${when ? ' · ' + escapeHtml(when) : ''} · check your wallet — this is the lottery hit.`;
+
+    if (pendingCount > 1) {
+      stack.hidden = false;
+      stack.textContent = `+${pendingCount - 1} more block find${pendingCount - 1 === 1 ? '' : 's'} waiting — dismiss to see the next.`;
+    } else {
+      stack.hidden = true;
+    }
+
+    overlay.hidden = false;
+
+    // Size the canvas to the viewport (CSS scales it; we set the actual
+    // bitmap size for crisp confetti).
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // Continuous spawn until dismissed. Cleared in _hideOverlay().
+    _fireConfetti(canvas);
+    if (_confettiInterval) clearInterval(_confettiInterval);
+    _confettiInterval = setInterval(() => _fireConfetti(canvas), 600);
+  }
+
+  function _hideOverlay() {
+    const overlay = document.getElementById('block-found-overlay');
+    if (overlay) overlay.hidden = true;
+    if (_confettiInterval) { clearInterval(_confettiInterval); _confettiInterval = null; }
+    if (_confettiInstance) { _confettiInstance.reset(); }
+    _activeFindId = null;
+  }
+
+  async function _ack(findId) {
+    try {
+      await api('/api/block-finds/ack', 'POST', { id: findId });
+    } catch (e) {
+      console.error('block-find ack failed:', e);
+      // Hide locally even on network failure — server will receive on the next poll if
+      // we add retry, otherwise the user can dismiss again later. Worst case: the
+      // overlay returns; best case: a transient network blip recovers silently.
+    }
+  }
+
+  async function _checkBlockFinds() {
+    let res;
+    try {
+      res = await api('/api/block-finds');
+    } catch (_) {
+      return;
+    }
+    const pending = (res && res.pending) || [];
+    if (pending.length === 0) {
+      if (_activeFindId) _hideOverlay();
+      return;
+    }
+    // Already showing this id → leave the existing overlay alone.
+    if (_activeFindId === pending[0].id) return;
+    _showOverlay(pending[0], pending.length);
+  }
+
+  // Dismiss button wiring (HTML element rendered statically in the template).
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('block-found-dismiss');
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        const id = _activeFindId;
+        _hideOverlay();
+        if (id) await _ack(id);
+        // Immediately poll again so if there's a next pending find we
+        // surface it without waiting 5s. This is the "+N more" path.
+        _checkBlockFinds();
+      });
+    }
+  });
+
+  // First check on load, then on every 5s tick alongside the device poll.
+  _checkBlockFinds();
+  setInterval(_checkBlockFinds, 5000);
+})();
 </script>
 </body>
 </html>

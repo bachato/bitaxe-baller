@@ -782,6 +782,111 @@
   .disclaimer-bar strong { color: var(--warn); font-weight: 500; }
   .disclaimer-bar a { color: var(--warn); }
 
+  /* === Block-found celebration overlay ===
+     Fires when /api/block-finds returns a pending (unack'd) record. Sticks
+     around (no auto-fade) until the user clicks the dismiss button — which
+     POSTs to /api/block-finds/ack so reloads don't replay. Per Nathan's
+     spec: "should continue until the user clears it or selects a button".
+     Continuous canvas-confetti rain in the background; the card is in
+     front of it. */
+  .block-found-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    padding: 20px;
+  }
+  .block-found-overlay[hidden] { display: none; }
+  /* Confetti canvas sits behind the card, covering the viewport. */
+  .block-found-confetti {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .block-found-card {
+    position: relative;
+    z-index: 1;
+    max-width: 540px;
+    width: 100%;
+    background: var(--bg-elev, var(--bg));
+    border: 1px solid var(--accent);
+    border-radius: 16px;
+    padding: 32px 28px;
+    text-align: center;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(247, 147, 26, 0.3);
+    /* Subtle bounce-in entrance — celebrates without feeling like marketing. */
+    animation: blockFoundIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes blockFoundIn {
+    0%   { transform: scale(0.7); opacity: 0; }
+    100% { transform: scale(1);   opacity: 1; }
+  }
+  .block-found-emoji {
+    font-size: 48px;
+    line-height: 1;
+    margin-bottom: 8px;
+    /* Tiny float so the emojis feel alive. */
+    animation: blockFoundFloat 2.4s ease-in-out infinite;
+  }
+  @keyframes blockFoundFloat {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
+  .block-found-headline {
+    font-family: 'Major Mono Display', 'JetBrains Mono', monospace;
+    font-size: 36px;
+    margin: 4px 0 16px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+  .block-found-detail {
+    font-size: 16px;
+    line-height: 1.5;
+    margin: 0 0 8px;
+    color: var(--text);
+  }
+  .block-found-detail strong { color: var(--accent); font-weight: 700; }
+  .block-found-sub {
+    font-size: 13px;
+    color: var(--dim);
+    margin: 0 0 24px;
+    line-height: 1.5;
+  }
+  .block-found-sub strong { color: var(--text); }
+  .block-found-actions {
+    display: flex;
+    justify-content: center;
+  }
+  .block-found-dismiss {
+    background: var(--accent);
+    color: #0b0b10;
+    border: 0;
+    padding: 12px 28px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .block-found-dismiss:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(247, 147, 26, 0.4);
+  }
+  .block-found-dismiss:active { transform: translateY(0); }
+  .block-found-stack {
+    font-size: 12px;
+    color: var(--dim);
+    margin: 14px 0 0;
+    font-style: italic;
+  }
+
   /* Critical: the `.update-banner` rule sets display: flex, which has the same
      specificity as the user-agent's `[hidden] { display: none }` and lands later
      in the cascade — so without this attribute-qualified override, `hidden`

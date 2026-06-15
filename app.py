@@ -178,6 +178,12 @@ def init_device_state(ip, label):
         "prev_shares_accepted": None,       # last polled value, for delta detection
         "prev_shares_rejected": None,
         "prev_best_diff_value": 0.0,        # for new-best detection
+        # Block-found counter from firmware's `blockFound` field. Increments
+        # only when this device finds a real network block. We compare the
+        # current value against the last-seen on every poll — any positive
+        # delta triggers a celebration record. None until the first poll
+        # establishes a baseline so we don't false-fire on startup.
+        "prev_block_found": None,
     }
 
 
@@ -269,6 +275,44 @@ def poll_one(ip, label):
             s["prev_shares_rejected"] = cur_rejected
             if cur_best_val > s["prev_best_diff_value"]:
                 s["prev_best_diff_value"] = cur_best_val
+
+            # BLOCK FOUND detection. Firmware exposes a `blockFound` counter
+            # that increments on a real solved-block share. We baseline it
+            # on the first successful poll (prev_block_found == None → just
+            # latch the current value) so we never false-fire on startup
+            # from an existing nonzero count. After baseline, any positive
+            # delta is a celebration trigger — _block_finds_record persists
+            # it + the dashboard's poll will pick up the unack'd find and
+            # throw confetti. Multi-find catch-up (e.g. device offline for
+            # a while, blockFound jumped by N) produces a single record
+            # tagged with the delta count.
+            cur_block_found = int(data.get("blockFound") or 0)
+            if s["prev_block_found"] is None:
+                # First poll for this device this session — baseline only.
+                s["prev_block_found"] = cur_block_found
+            elif cur_block_found > s["prev_block_found"]:
+                delta = cur_block_found - s["prev_block_found"]
+                s["prev_block_found"] = cur_block_found
+                chain_id = _infer_chain(
+                    data.get("stratumURL", ""),
+                    data.get("stratumPort", 0),
+                    data.get("stratumUser", ""),
+                )
+                rec = _block_finds_record(ip, s["label"], data, chain_id)
+                rec["delta"] = delta  # so the UI can say "+N blocks found"
+                log_event(ip, f"🎉 BLOCK FOUND on {rec['chain_name']} (height {rec['block_height']}, diff {rec['best_diff']})")
+                # Fire as a high-priority alert too — block-found is the one
+                # event nobody wants to miss. Uses the same dispatch path as
+                # offline/temp alerts so Discord + email both ping if configured.
+                try:
+                    _alerts_dispatch(
+                        s["label"], ip, "block_found",
+                        f"🎉 BLOCK FOUND: {s['label']} on {rec['chain_name']}",
+                        f"Bitaxe {s['label']} just solved a {rec['chain_name']} block at height {rec['block_height']}. "
+                        f"Difficulty: {rec['best_diff']}. Look at your wallet — this is the lottery hit.",
+                    )
+                except Exception:
+                    pass
 
             point = {
                 "t": ts,
@@ -1003,6 +1047,138 @@ def device_summary(s):
     }
 
 
+# ---------- Block-found celebration ----------
+#
+# The Bitaxe firmware exposes a `blockFound` counter that increments each
+# time the device actually solves a network block (validated by the pool).
+# When that counter ticks up between polls we treat it as a real, live,
+# "the lottery hit" event — the rarest, most celebratory thing that can
+# happen in solo mining — and persist a record so the dashboard can throw
+# confetti until the user explicitly acknowledges it.
+#
+# Persistence model: plain JSON file in the data dir. Block finds are
+# rare enough (BTC: never on a single Bitaxe in a human lifetime; XEC /
+# DGB: meaningfully possible) that ~10 records/year per user is the
+# upper bound. JSON is dead simple, atomic via write-temp-then-rename,
+# survives restarts, no schema migrations. SQLite would be overkill.
+#
+# Free for everyone — this is delight, not a Pro hook. The Discord push
+# on find IS Pro-gated (rides the existing alert pipeline) but the
+# on-screen confetti fires for all users.
+
+BLOCK_FINDS_PATH = os.path.join(_DATA_DIR, "block_finds.json")
+_block_finds_lock = threading.Lock()
+_block_finds_cache: list | None = None  # lazy-loaded on first read
+
+
+def _block_finds_load() -> list:
+    """Lazy-load + cache the block_finds list from disk. Returns a list of
+    dicts; on a fresh install (file missing) returns an empty list."""
+    global _block_finds_cache
+    if _block_finds_cache is not None:
+        return _block_finds_cache
+    with _block_finds_lock:
+        if _block_finds_cache is not None:
+            return _block_finds_cache
+        if not os.path.exists(BLOCK_FINDS_PATH):
+            _block_finds_cache = []
+            return _block_finds_cache
+        try:
+            with open(BLOCK_FINDS_PATH, "r") as f:
+                data = json.load(f)
+            _block_finds_cache = list(data.get("finds", []))
+        except (json.JSONDecodeError, OSError):
+            # Corrupt file — rare, but losing all block-find history would
+            # be devastating, so we move it aside before starting fresh.
+            try:
+                os.rename(BLOCK_FINDS_PATH, BLOCK_FINDS_PATH + ".corrupt")
+            except OSError:
+                pass
+            _block_finds_cache = []
+        return _block_finds_cache
+
+
+def _block_finds_save() -> None:
+    """Persist the in-memory list to disk atomically (write tmp + rename
+    so we can't half-write on a crash). Caller must hold _block_finds_lock."""
+    if _block_finds_cache is None:
+        return
+    tmp = BLOCK_FINDS_PATH + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump({"finds": _block_finds_cache}, f, indent=2)
+        os.replace(tmp, BLOCK_FINDS_PATH)
+    except OSError as e:
+        print(f"[block-finds] save failed: {e}", file=sys.stderr)
+
+
+def _block_finds_record(ip: str, label: str, latest: dict, chain_id: str) -> dict:
+    """Append a new block-find record to the persistent list. Returns the
+    record (with the id assigned) so callers can attach it to the device
+    event log and/or fire downstream notifications. Idempotent on its own
+    inputs but the caller must gate on a real prev_block_found delta."""
+    rec = {
+        # Monotonic id is enough since this list is per-install. UUID4 would
+        # work too but adds a dep + we don't need cross-install uniqueness.
+        "id": f"bf-{int(time.time() * 1000)}-{ip.replace('.', '-')}",
+        "device_ip": ip,
+        "device_label": label or latest.get("hostname") or ip,
+        "mac_addr": (latest.get("macAddr") or "").upper(),
+        "chain": chain_id,
+        "chain_name": {
+            "btc": "Bitcoin", "bch": "Bitcoin Cash", "bsv": "Bitcoin SV",
+            "xec": "eCash",   "dgb": "DigiByte",     "nmc": "Namecoin",
+        }.get(chain_id, chain_id.upper()),
+        "block_height": int(latest.get("blockHeight") or 0),
+        "best_diff": str(latest.get("bestDiff") or "0"),
+        "best_session_diff": str(latest.get("bestSessionDiff") or "0"),
+        "found_at": int(time.time()),
+        "acknowledged": False,
+    }
+    with _block_finds_lock:
+        _block_finds_load()
+        _block_finds_cache.append(rec)  # type: ignore[union-attr]
+        _block_finds_save()
+    return rec
+
+
+def _block_finds_ack(find_id: str) -> bool:
+    """Mark a block-find as acknowledged (dashboard dismiss). Returns True
+    if the id existed and was newly ack'd, False otherwise."""
+    with _block_finds_lock:
+        finds = _block_finds_load()
+        for f in finds:
+            if f.get("id") == find_id and not f.get("acknowledged"):
+                f["acknowledged"] = True
+                f["acknowledged_at"] = int(time.time())
+                _block_finds_save()
+                return True
+    return False
+
+
+def _block_finds_pending() -> list:
+    """Unack'd block finds. The dashboard checks this and shows the confetti
+    overlay if non-empty. Newest first."""
+    with _block_finds_lock:
+        finds = _block_finds_load()
+        return sorted(
+            (dict(f) for f in finds if not f.get("acknowledged")),
+            key=lambda r: r.get("found_at", 0),
+            reverse=True,
+        )
+
+
+def _block_finds_recent(limit: int = 20) -> list:
+    """All recent finds, ack'd or not. For the device card badge + history."""
+    with _block_finds_lock:
+        finds = _block_finds_load()
+        return sorted(
+            (dict(f) for f in finds),
+            key=lambda r: r.get("found_at", 0),
+            reverse=True,
+        )[:limit]
+
+
 # ---------- Alerts (Pro) ----------
 #
 # v1 scope: Discord webhook channel + three rule types (offline, VR temp,
@@ -1506,6 +1682,56 @@ def api_devices():
     with state_lock:
         summaries = [device_summary(s) for s in state.values()]
     return jsonify(_enrich_fleet_outliers(summaries))
+
+
+@app.route("/api/block-finds")
+def api_block_finds():
+    """Return pending (unack'd) + recent block finds. Dashboard polls this on
+    the same 5s cadence as /api/devices — block finds are rare so a second
+    small HTTP call adds essentially nothing, and keeping it separate means
+    /api/devices stays a backward-compatible array."""
+    return jsonify({
+        "pending": _block_finds_pending(),
+        "recent":  _block_finds_recent(20),
+    })
+
+
+@app.route("/api/block-finds/ack", methods=["POST"])
+def api_block_finds_ack():
+    """Mark a block-find as acknowledged so its confetti overlay stops firing
+    on subsequent dashboard polls. Body: {id}. Idempotent: ack'ing an already-
+    ack'd id returns 200 with already_acked=true."""
+    body = request.get_json(silent=True) or {}
+    find_id = str(body.get("id") or "").strip()
+    if not find_id:
+        return jsonify({"error": "id required"}), 400
+    ok = _block_finds_ack(find_id)
+    return jsonify({"ok": True, "already_acked": not ok})
+
+
+@app.route("/api/block-finds/_test", methods=["POST"])
+def api_block_finds_test():
+    """DEV-only: inject a synthetic block-find for testing the celebration UI.
+    Gated behind the BITAXE_BALLER_DEV_PRO env var so a production install
+    can't accidentally fire confetti by curl. Useful for verifying the
+    overlay + ack flow without waiting for a real block to be solved."""
+    if not os.environ.get("BITAXE_BALLER_DEV_PRO"):
+        return jsonify({"error": "dev mode only — set BITAXE_BALLER_DEV_PRO=1"}), 403
+    body = request.get_json(silent=True) or {}
+    fake_latest = {
+        "blockHeight": int(body.get("block_height") or 17_623_815),
+        "bestDiff":    str(body.get("best_diff") or "1.18T"),
+        "bestSessionDiff": str(body.get("best_session_diff") or "1.18T"),
+        "macAddr": "DE:AD:BE:EF:00:01",
+    }
+    chain = str(body.get("chain") or "dgb")
+    rec = _block_finds_record(
+        ip=str(body.get("device_ip") or "192.168.1.226"),
+        label=str(body.get("device_label") or "Bitaxe_004"),
+        latest=fake_latest,
+        chain_id=chain,
+    )
+    return jsonify({"ok": True, "find": rec})
 
 
 @app.route("/api/device/<ip>")
