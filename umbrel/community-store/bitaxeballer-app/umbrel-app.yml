@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.16.0"
+version: "1.16.2"
 
 port: 13700
 description: >-
@@ -67,6 +67,15 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
+  v1.16.2 — Umbrel hotfix bundle. Two bugs from v1.16.0 needed a
+  follow-up: (1) the dashboard could lock up and stop refreshing —
+  a threading deadlock in the new block-find tracker meant the only
+  recovery was an app restart, which several Umbrel users hit; (2)
+  saving a fresh email-alerts address fired a burst of "catch-up"
+  alerts for every miner already in a tripping state. Both fixed.
+  All v1.16.0 features below are unchanged.
+
+
   v1.16.0 — the lottery-hit release. The headline: if your Bitaxe ever
   solves a network block, the dashboard now throws a sticky confetti
   overlay until you dismiss it. Continuous spawn, no auto-fade — block
