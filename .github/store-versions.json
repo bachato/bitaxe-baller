@@ -1,15 +1,15 @@
 {
   "android": {
-    "realInstalls": 15,
+    "realInstalls": 33,
     "recentChanges": null,
     "released": "May 24, 2026",
     "summary": "Monitor Bitaxe Bitcoin miners from anywhere. Biometrics, charts, Pro history.",
     "version": "Varies with device"
   },
   "ios": {
-    "currentVersionReleaseDate": "2026-06-15T21:54:26Z",
-    "releaseNotes": "v1.2.2 \u2014 Two fixes bundled. (1) Rebuilt the QR scanner using AVFoundation (Apple's native camera framework) \u2014 the \"BarcodeScanner not implemented on iOS\" error from v1.2 is fixed. (2) Mobile WebSocket now auto-reconnects with exponential backoff when the connection drops (network blip, app backgrounded, brief desktop disconnect). The app no longer requires force-close + reopen to recover from a transient disconnect.",
+    "currentVersionReleaseDate": "2026-06-12T21:51:43Z",
+    "releaseNotes": "v1.2 \u2014 Tap \"Scan QR code\" on the pair screen, point your camera at the QR shown in the desktop's Pro panel, you're paired in three steps. No more typing the 22-character pair code. Manual entry still works as a fallback.",
     "trackName": "Bitaxe Baller",
-    "version": "1.2.2"
+    "version": "1.2"
   }
 }
