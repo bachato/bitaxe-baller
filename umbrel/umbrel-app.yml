@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.16.2"
+version: "1.16.3"
 
 port: 13700
 description: >-
@@ -67,6 +67,12 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
+  v1.16.3 — Maintenance release. No functional changes from v1.16.2;
+  this bump realigns the version across all platforms (Mac, Windows,
+  Umbrel) and refreshes the in-app update feed. Everything below is
+  unchanged.
+
+
   v1.16.2 — Umbrel hotfix bundle. Two bugs from v1.16.0 needed a
   follow-up: (1) the dashboard could lock up and stop refreshing —
   a threading deadlock in the new block-find tracker meant the only
