@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.12.0** — Live dashboard + tuner for Bitaxe miners on your local network. Native desktop app for Mac and Windows. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. **New in v1.12.0:** The public leaderboard at [bitaxeballer.com/leaderboard](https://bitaxeballer.com/leaderboard) is now free to enter for all users. Top miner in each Bitaxe model wins one free month of Pro every month; places 2-5 get a 20%-off coupon. Free-tier users sign up with a display name + verified email; Pro users authenticate with their license key. **Pro:** remote dashboard access from outside the LAN via the bitaxeballer.com relay — outbound-only, license-key auth, one-click toggle. Free, MIT-licensed, no telemetry beyond the once-per-hour update check.
+**v1.16.3** — Live dashboard + tuner for Bitaxe miners on your local network. Native desktop app for Mac and Windows, an Umbrel community app for self-hosters, and companion apps for iOS and Android. Click the icon, a window opens with every Bitaxe on your network — temps, hashrate, tuning recommendations, pool config. Other devices on your LAN reach the same dashboard at `http://bitaxe-baller.local`. **Public leaderboard:** [bitaxeballer.com/leaderboard](https://bitaxeballer.com/leaderboard) is free to enter for all users. Top miner in each Bitaxe model wins one free month of Pro every month; places 2-5 get a 20%-off coupon. Free-tier users sign up with a display name + verified email; Pro users authenticate with their license key. **Pro:** remote dashboard access from outside the LAN via the bitaxeballer.com relay — outbound-only, license-key auth, one-click toggle. Free, MIT-licensed, no telemetry beyond the once-per-hour update check.
 
 <p align="center">
   <img src="screenshots/home.jpg" alt="Bitaxe Baller home view — compact card per device with health border colors" width="900">
@@ -16,7 +16,7 @@
 >
 > - You're tuning **your own hardware at your own risk**.
 > - The author(s) and contributors are **not liable** for any damage to your miner, lost mining revenue, electricity costs, fire, water damage, voided warranties, or other consequences arising from use of this tool.
-> - The "safety bounds" baked into the app (frequency 400–700 MHz, core voltage 1000–1300 mV) are **upper guardrails, not recommendations** — sustained operation at the high end of those ranges WILL shorten chip life.
+> - The "safety bounds" baked into the app (frequency 400–900 MHz, core voltage 1000–1300 mV) are **upper guardrails, not recommendations** — sustained operation at the high end of those ranges WILL shorten chip life.
 > - Software is provided **AS-IS, without warranty of any kind**. See [LICENSE](./LICENSE).
 >
 > If you don't accept this, don't click "apply." Stick to stock and you'll be fine.
@@ -96,7 +96,7 @@ The desktop app opens an outbound WebSocket to `relay.bitaxeballer.com`; remote 
   (license-key auth)              (in-memory router)               (session token, 24h)
 ```
 
-The relay is dumb — it validates the license, allow-lists `/api/*` paths, caps message size, and forwards opaque JSON. All product logic stays in the local app, so the server-side safety bounds (frequency 400–700 MHz, voltage 1000–1300 mV, etc.) apply identically over the relay. Read-only home view in v1.9.0; tuning over the relay is on the v1.9.x list.
+The relay is dumb — it validates the license, allow-lists `/api/*` paths, caps message size, and forwards opaque JSON. All product logic stays in the local app, so the server-side safety bounds (frequency 400–900 MHz, voltage 1000–1300 mV, etc.) apply identically over the relay. Read-only home view in v1.9.0; tuning over the relay is on the v1.9.x list.
 
 Remote dashboard lives at `https://relay.bitaxeballer.com/`. Sign in with your license key, you're in.
 
@@ -151,7 +151,7 @@ For fine tuning, use the manual ± buttons: frequency in 25 MHz jumps, then trim
 
 The app refuses settings outside these ranges regardless of what you enter:
 
-- Frequency: 400–700 MHz
+- Frequency: 400–900 MHz
 - Core voltage: 1000–1300 mV
 - Fan speed: 0–100%
 
@@ -179,10 +179,16 @@ Columns: timestamp, ISO time, hashrate, ASIC temp, VR temp, power, voltage (meas
 
 - ~~Remote access — reach your dashboard from outside the LAN via the bitaxeballer.com relay~~ ✅
 
-### Still to ship
+### Also shipped since
 
 - ~~True in-place auto-updates (Sparkle/WinSparkle) — Pro, paired with a Windows code-signing cert~~ ✅ v1.8.2 (Mac Pro auto-update + Windows Authenticode signing)
-- Email + Telegram alert channels — Pro, v1.8.x
+- ~~Email alerts — Pro~~ ✅ v1.16.0 (offline / temp triggers, alert-storm suppression)
+- ~~Umbrel community app — one-click self-host~~ ✅ (Docker image + `465media/umbrel-bitaxe-baller-store`)
+- ~~Companion mobile apps for iOS and Android~~ ✅ live in the App Store + Play Store; connect to your fleet over the relay
+
+### Still to ship
+
+- Telegram alert channel — Pro
 - `start.sh` one-liner that creates the venv, installs deps, runs the app
 - launchd plist template for run-on-boot on macOS
 - A/B comparison mode: pin two settings snapshots side-by-side

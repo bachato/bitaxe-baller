@@ -1,6 +1,26 @@
 # Bitaxe Baller
 
-**v1.6** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Built-in LAN scanner auto-discovers new miners. Inline tooltips throughout. Single shared stylesheet and JS helper file under `static/`. No build step.
+**v1.16.3** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Built-in LAN scanner auto-discovers new miners. Inline tooltips throughout. Single shared stylesheet and JS helper file under `static/`. The web app itself has no build step (vanilla JS, no framework) — desktop packaging is a separate PyInstaller pipeline under `build/`.
+
+> **This Flask app is the core of a 5-channel product, not the whole thing.** Don't trust version numbers in docs — verify against `git`/`gh` first (the docs have drifted before). See the persisted memory files for the full picture: `project-ecosystem-map`, `release-process`, `feedback-keep-docs-current`.
+
+## Ecosystem & distribution channels
+
+The product ships through five channels, spanning three repos:
+
+| Channel | Where it's built / lives |
+|---|---|
+| macOS desktop (signed + notarized DMG) | `build/` here — local `build/build-mac.sh` + `release-mac.sh` (needs Apple notary creds + Ed25519 key) |
+| Windows desktop (Authenticode-signed EXE) | `build/` here — built in CI (`.github/workflows/build-windows.yml`) on tag push |
+| Umbrel self-host (Docker + community store) | `umbrel/` here + the separate repo `465media/umbrel-bitaxe-baller-store`; image is built by `build-docker.yml` |
+| iOS app (live, App Store) | **Source not in `465media`** — locate before working on it; it's a relay client |
+| Android app (live, Play Store) | **Source not in `465media`** — same |
+
+Other repos: `465media/bitaxe-baller-site` (private — bitaxeballer.com marketing, download tracker, license server `/api/license`, leaderboard, **appcast hosting**).
+
+**Relay** (`relay/` here, deployed at `relay.bitaxeballer.com`): a dumb in-memory WebSocket router that lets remote browsers and the mobile apps reach a user's LAN dashboard. Desktop opens an outbound WSS; clients route by license key. All product logic and safety bounds stay in the local app. It is the spine that connects desktop ⇄ remote ⇄ mobile.
+
+**Releasing** is a defined multi-step sequence (version-bump checklist → tag → CI for Win/Docker/Discord → local Mac build + appcast merge → separate Umbrel digest bump). The full procedure is in the `release-process` memory file — follow it; the steps are order-sensitive.
 
 ## Run
 
