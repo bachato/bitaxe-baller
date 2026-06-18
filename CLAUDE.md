@@ -13,10 +13,12 @@ The product ships through five channels, spanning three repos:
 | macOS desktop (signed + notarized DMG) | `build/` here — local `build/build-mac.sh` + `release-mac.sh` (needs Apple notary creds + Ed25519 key) |
 | Windows desktop (Authenticode-signed EXE) | `build/` here — built in CI (`.github/workflows/build-windows.yml`) on tag push |
 | Umbrel self-host (Docker + community store) | `umbrel/` here + the separate repo `465media/umbrel-bitaxe-baller-store`; image is built by `build-docker.yml` |
-| iOS app (live, App Store) | **Source not in `465media`** — locate before working on it; it's a relay client |
-| Android app (live, Play Store) | **Source not in `465media`** — same |
+| iOS app (live, App Store v1.2.x) | Dedicated **private** repo `465media/bitaxe-baller-mobile` — Capacitor, relay client |
+| Android app (live, Play Store) | Same repo — one Capacitor codebase covers both platforms |
 
-Other repos: `465media/bitaxe-baller-site` (private — bitaxeballer.com marketing, download tracker, license server `/api/license`, leaderboard, **appcast hosting**).
+Mobile has its own version line (1.2.x), independent of the dashboard (1.16.x). It was extracted (2026-06-18) from the old `feat/mobile-capacitor` branch of this repo, which is now superseded.
+
+Other repos: `465media/bitaxe-baller-mobile` (private — Capacitor iOS+Android) · `465media/bitaxe-baller-site` (private — bitaxeballer.com marketing, download tracker, license server `/api/license`, leaderboard, **appcast hosting**) · `465media/umbrel-bitaxe-baller-store` (public — Umbrel community store).
 
 **Relay** (`relay/` here, deployed at `relay.bitaxeballer.com`): a dumb in-memory WebSocket router that lets remote browsers and the mobile apps reach a user's LAN dashboard. Desktop opens an outbound WSS; clients route by license key. All product logic and safety bounds stay in the local app. It is the spine that connects desktop ⇄ remote ⇄ mobile.
 
