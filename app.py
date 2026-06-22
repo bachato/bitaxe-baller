@@ -1653,18 +1653,25 @@ def device_detail(ip):
 
 # Fleet outlier detection — informational rec for devices materially
 # under-performing or over-erroring vs. their peers on the same chain.
-# Compared within-chain to avoid false positives when a Gamma on BTC sits
-# next to a Gamma on BCH (network difficulty changes the share rate, not
-# the hashrate, but the user would be confused either way).
-FLEET_OUTLIER_MIN_DEVICES = 3        # statistically meaningless below this
-FLEET_OUTLIER_GHS_FLOOR_PCT = 0.80   # device GH/s < 80% of fleet median → flag
-FLEET_OUTLIER_HW_MULTIPLE   = 2.0    # device HW% > 2× fleet median (and > 1%) → flag
+#
+# Underperformance is judged on each board's actual-vs-EXPECTED hashrate
+# (a percentage already normalized for chip count and frequency), NOT raw
+# GH/s. Comparing raw GH/s flagged healthy small boards as outliers whenever
+# they shared a fleet with higher-hashrate machines (e.g. a ~1.2 TH/s Gamma
+# next to a multi-chip board) — the median got dragged up and the Gamma fell
+# below the floor despite running perfectly. Normalizing fixes that: a healthy
+# board reads ~100% regardless of model or size, so only a board lagging its
+# OWN spec relative to its siblings is flagged.
+FLEET_OUTLIER_MIN_DEVICES    = 3      # statistically meaningless below this
+FLEET_OUTLIER_PERF_FLOOR_PCT = 0.80   # board's actual%-of-expected < 80% of fleet median → flag
+FLEET_OUTLIER_HW_MULTIPLE    = 2.0    # device HW% > 2× fleet median (and > 1%) → flag
 
 
 def _enrich_fleet_outliers(summaries):
     """Add a `fleet_outlier` recommendation to each summary whose metrics
-    deviate materially from the fleet median (within the same chain).
-    No-op if the fleet has fewer than FLEET_OUTLIER_MIN_DEVICES devices."""
+    deviate materially from the fleet (within the same chain). Underperformance
+    is measured on actual-vs-expected hashrate %, so mixing board sizes/models
+    no longer produces false positives. No-op below FLEET_OUTLIER_MIN_DEVICES."""
     online = [s for s in summaries if s.get("online") and s.get("metrics")]
     if len(online) < FLEET_OUTLIER_MIN_DEVICES:
         return summaries
@@ -1677,22 +1684,31 @@ def _enrich_fleet_outliers(summaries):
     for chain, group in by_chain.items():
         if len(group) < FLEET_OUTLIER_MIN_DEVICES:
             continue
-        ghs_values = sorted(s["metrics"]["hashRate"] for s in group)
+        # Normalized performance: each board vs its OWN expected output. Boards
+        # without a valid expected figure yet (just added, no freq) report 0 —
+        # exclude them from the median and never flag them.
+        perf_values = sorted(
+            s["efficiency"]["actualPctOfExpected"] for s in group
+            if s["efficiency"]["actualPctOfExpected"] > 0
+        )
         hw_values = sorted(s["hwErrors"]["ratePct"] for s in group)
-        # median (n is small; explicit pick beats importing statistics)
-        median_ghs = ghs_values[len(ghs_values) // 2]
-        median_hw  = hw_values[len(hw_values) // 2]
-        ghs_floor = median_ghs * FLEET_OUTLIER_GHS_FLOOR_PCT
+        median_hw = hw_values[len(hw_values) // 2]
         hw_ceiling = max(1.0, median_hw * FLEET_OUTLIER_HW_MULTIPLE)
+        # Need enough boards reporting a valid expected-vs-actual to form a median.
+        median_perf = (
+            perf_values[len(perf_values) // 2]
+            if len(perf_values) >= FLEET_OUTLIER_MIN_DEVICES else None
+        )
+        perf_floor = median_perf * FLEET_OUTLIER_PERF_FLOOR_PCT if median_perf else None
 
         for s in group:
-            ghs = s["metrics"]["hashRate"]
+            pct = s["efficiency"]["actualPctOfExpected"]
             hw_pct = s["hwErrors"]["ratePct"]
             issues = []
-            if median_ghs > 0 and ghs < ghs_floor:
-                deficit_pct = round((1 - ghs / median_ghs) * 100, 1)
+            if perf_floor is not None and pct > 0 and pct < perf_floor:
                 issues.append(
-                    f"hashing {deficit_pct}% below fleet median ({ghs:.0f} vs {median_ghs:.0f} GH/s)"
+                    f"delivering {pct:.0f}% of its rated hashrate vs the fleet's "
+                    f"~{median_perf:.0f}%"
                 )
             if hw_pct > hw_ceiling:
                 issues.append(
