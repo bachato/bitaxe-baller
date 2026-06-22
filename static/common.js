@@ -93,6 +93,10 @@ async function checkForUpdates() {
   // banner still surfaces (preserve old behavior for older installs).
   if (data.banner_recommended === false) return;
   if (_loadDismissedVersions().includes(data.latest)) return;
+  // Idempotency guard: checkForUpdates runs on load AND on a periodic timer
+  // (see below). If we're already showing this exact version, bail so the
+  // timer doesn't stack a fresh set of click handlers every few hours.
+  if (host.dataset.shownVersion === data.latest && !host.hidden) return;
 
   host.querySelector('.version').textContent = 'v' + data.latest;
   const notes = host.querySelector('.notes-link');
@@ -134,9 +138,14 @@ async function checkForUpdates() {
     _saveDismissedVersion(data.latest);
     host.hidden = true;
   });
+  host.dataset.shownVersion = data.latest;
   host.hidden = false;
 }
 window.addEventListener('DOMContentLoaded', checkForUpdates);
+// Re-check periodically so a long-lived dashboard tab notices a new release
+// without a manual reload (the one-shot load-time check used to miss them).
+// /api/update-check is cached server-side for ~1h, so a 6h cadence is cheap.
+setInterval(checkForUpdates, 6 * 60 * 60 * 1000);
 
 // ----- theme toggle -----
 function applyThemeUI(theme) {
