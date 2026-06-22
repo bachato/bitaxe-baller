@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.16.4"
+version: "1.16.5"
 
 port: 13700
 description: >-
@@ -67,6 +67,12 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
+  v1.16.5 — Remote access is now free (limited to 1 miner). You no longer
+  need Pro to view your fleet from outside your LAN or on the mobile app —
+  pair your phone and it just works. Free shows your first miner; Pro shows
+  the full fleet.
+
+
   v1.16.4 — Two fixes. (1) "Fleet outlier" no longer fires on a correctly
   tuned board just because it's monitored alongside higher-hashrate
   machines — the check now compares each board against its own expected
