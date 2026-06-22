@@ -2279,16 +2279,17 @@ def _save_remote_access_cfg(enabled: bool, relay_url: str) -> None:
 
 
 def _maybe_start_relay_client(app_port: int) -> None:
-    """Called once on startup. Starts the connector if (a) Pro is active and
-    (b) the user has enabled remote access. Silent no-op otherwise."""
-    if not is_pro_active():
-        return
+    """Called once on startup. Starts the connector if the user has enabled
+    remote access. Pro connects with the license key (full fleet); free tier
+    connects with install_uuid only (relay caps to 1 device). No-op if remote
+    access is disabled or there's nothing to authenticate with."""
     rc = _remote_access_cfg()
     if not rc["enabled"]:
         return
+    install_uuid = _install_uuid()
     lic = _get_license()
-    key = (lic.get("key") or "").strip() if lic else ""
-    if not key:
+    key = (lic.get("key") or "").strip() if (lic and is_pro_active()) else ""
+    if not key and not install_uuid:
         return
     try:
         relay_client.start(
@@ -2296,7 +2297,7 @@ def _maybe_start_relay_client(app_port: int) -> None:
             relay_url=rc["relay_url"],
             app_port=app_port,
             app_version=APP_VERSION,
-            install_uuid=_install_uuid(),
+            install_uuid=install_uuid,
         )
     except Exception as e:
         print(f"[relay] could not start connector: {type(e).__name__}: {e}", file=sys.stderr)
@@ -2306,7 +2307,8 @@ def _maybe_start_relay_client(app_port: int) -> None:
 def api_remote_status():
     cfg = _remote_access_cfg()
     return jsonify({
-        "pro_required": True,
+        "pro_required": False,        # free tier allowed; relay caps it to 1 device
+        "free_device_limit": 1,
         "pro_active": is_pro_active(),
         "configured": cfg,
         "runtime": relay_client.get_status(),
@@ -2315,17 +2317,17 @@ def api_remote_status():
 
 @app.route("/api/remote/enable", methods=["POST"])
 def api_remote_enable():
-    if not is_pro_active():
-        return jsonify({"error": "Remote access is a Pro feature."}), 402
-
+    # Remote access is available to everyone. Pro users with a real license key
+    # connect on the license-validated path (full fleet); everyone else (free
+    # tier, or dev-override Pro without a key) connects by install_uuid, which
+    # the relay caps to 1 device server-side — so this can't leak the paid tier.
+    # The 1-miner boundary lives on the relay, not here.
+    install_uuid = _install_uuid()
     lic = _get_license()
-    key = (lic.get("key") or "").strip() if lic else ""
-    if not key:
-        # is_pro_active() returned true so there should be a key; dev override
-        # is the one path where there isn't, and we can't relay-route requests
-        # without a real license key — the relay rejects empty bearers.
+    key = (lic.get("key") or "").strip() if (lic and is_pro_active()) else ""
+    if not key and not install_uuid:
         return jsonify({
-            "error": "Remote access needs a real license key. Activate Pro first.",
+            "error": "No install ID available yet — restart the app and try again.",
         }), 400
 
     body = request.get_json(silent=True) or {}
@@ -2349,9 +2351,9 @@ def api_remote_enable():
         relay_url=relay_url,
         app_port=PORT,
         app_version=APP_VERSION,
-        install_uuid=_install_uuid(),
+        install_uuid=install_uuid,
     )
-    return jsonify({"ok": True, "status": relay_client.get_status()})
+    return jsonify({"ok": True, "tier": "pro" if key else "free", "status": relay_client.get_status()})
 
 
 @app.route("/api/remote/disable", methods=["POST"])

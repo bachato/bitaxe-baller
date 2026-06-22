@@ -665,7 +665,7 @@ function _renderRemoteAccessSection(remote, isDev) {
           <span class="remote-dot"></span>${escapeHtml(stateLabel)}
         </div>
       </div>
-      <p class="remote-blurb">Reach this dashboard from outside your LAN. The app opens an outbound connection to <code>${escapeHtml(cfg.relay_url || '')}</code> — no inbound port to forward.</p>
+      <p class="remote-blurb">Reach this dashboard from outside your LAN. The app opens an outbound connection to <code>${escapeHtml(cfg.relay_url || '')}</code> — no inbound port to forward.${remote.pro_active ? '' : ' On the free tier, remote and paired devices show your first miner — upgrade to Pro for the full fleet.'}</p>
       ${enabled && rt.last_error ? `<p class="remote-error">${escapeHtml(rt.last_error)}</p>` : ''}
       ${lockedNote}
       <div class="pro-actions">
@@ -729,15 +729,14 @@ async function _handlePairNewClick() {
     // Access toggle was off — a brand-new user would dead-end at that
     // confusion). Fix: check first, auto-enable if needed, toast the user.
     //
-    // is_pro_active() is required on the server side for /api/remote/enable,
-    // so a free user clicking pair (their button mints a free-tier 1-miner
-    // token) skips the auto-enable step naturally — the server rejects and
-    // we proceed without it.
+    // This now runs for FREE users too: remote access is free (the relay
+    // caps free connections to 1 device), so a free user pairing should also
+    // get their desktop's relay link auto-enabled — otherwise the phone shows
+    // a blank fleet. Pro and free both auto-enable here.
     try {
       const remote = await api('/api/remote/status');
       const alreadyOn = !!(remote && remote.configured && remote.configured.enabled);
-      const proActive = !!(remote && remote.pro_active);
-      if (proActive && !alreadyOn) {
+      if (!alreadyOn) {
         btn.textContent = 'Enabling remote access…';
         await api('/api/remote/enable', 'POST', {});
         toast('Remote access enabled — needed for paired devices to see your fleet.');

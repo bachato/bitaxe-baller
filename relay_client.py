@@ -93,12 +93,17 @@ def start(
 
     iOS v1.1: pass `install_uuid` so the relay can dual-index this app
     connection (by license_key for legacy session clients, by install_uuid
-    for paired iOS clients). Empty string keeps the legacy behavior."""
+    for paired iOS clients). Empty string keeps the legacy behavior.
+
+    Free tier: pass `install_uuid` with an empty `license_key` — the connector
+    authenticates to the relay by install_uuid alone (no Bearer header), and
+    the relay caps such connections to 1 device's data. One of license_key /
+    install_uuid must be present."""
     global _thread, _stop_event
     if is_running():
         return
-    if not license_key:
-        raise ValueError("license_key is required")
+    if not license_key and not install_uuid:
+        raise ValueError("license_key or install_uuid is required")
     _stop_event = threading.Event()
     _update(
         enabled=True,
@@ -202,8 +207,11 @@ async def _connect_and_serve(
     if install_uuid:
         from urllib.parse import quote
         url = url + "?install_uuid=" + quote(install_uuid, safe="")
-    headers = [("Authorization", f"Bearer {license_key}")]
-    log.info("relay connecting url=%s", url)
+    # Free tier connects with install_uuid only — send no Authorization header
+    # so the relay routes us as tier="free" (and caps us to 1 device). Pro
+    # sends the Bearer and gets the license-validated, full-fleet path.
+    headers = [("Authorization", f"Bearer {license_key}")] if license_key else []
+    log.info("relay connecting url=%s tier=%s", url, "pro" if license_key else "free")
     ssl_ctx = None
     if url.startswith("wss://"):
         ssl_ctx = ssl.create_default_context(cafile=_CA_BUNDLE) if _CA_BUNDLE else ssl.create_default_context()
