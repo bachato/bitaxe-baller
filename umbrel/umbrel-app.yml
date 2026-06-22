@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.16.3"
+version: "1.16.4"
 
 port: 13700
 description: >-
@@ -67,6 +67,13 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
+  v1.16.4 — Two fixes. (1) "Fleet outlier" no longer fires on a correctly
+  tuned board just because it's monitored alongside higher-hashrate
+  machines — the check now compares each board against its own expected
+  output, not raw fleet hashrate. (2) The dashboard re-checks for updates
+  periodically, so a tab left open notices new releases without a reload.
+
+
   v1.16.3 — Maintenance release. No functional changes from v1.16.2;
   this bump realigns the version across all platforms (Mac, Windows,
   Umbrel) and refreshes the in-app update feed. Everything below is
