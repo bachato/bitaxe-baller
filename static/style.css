@@ -2546,6 +2546,17 @@
     color: var(--dim);
     min-width: 0;
   }
+  .compact-pool .pool-chain {
+    flex: none;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-dim);
+    color: var(--accent);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
   .compact-pool .pool-ico { opacity: 0.6; flex: none; }
   .compact-pool .pool-host {
     overflow: hidden;

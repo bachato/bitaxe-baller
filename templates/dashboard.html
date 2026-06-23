@@ -317,8 +317,8 @@ function renderCompactDevice(d) {
           <span class="best-share-badge"><span class="bs-l">best</span><span class="bs-v">${formatDiff(m.bestDiff)}</span></span>
           <span class="best-share-badge session"><span class="bs-l">session</span><span class="bs-v">${formatDiff(m.bestSessionDiff)}</span></span>
         </div>
-        <div class="compact-pool${pool.onFallback ? ' on-fallback' : ''}" data-tip="The pool this miner is currently mining to. A 'fallback' tag means it couldn't reach its primary pool and dropped to the secondary — verify the primary pool's address and port on the device page.">
-          <span class="pool-ico">⛏</span>
+        <div class="compact-pool${pool.onFallback ? ' on-fallback' : ''}" data-tip="The chain + pool this miner is currently mining to. The chain tag comes from auto-detection or your manual override (device page) — handy when one box hosts several chains on the same IP. A 'fallback' tag means it dropped to its secondary pool.">
+          <span class="pool-chain">${escapeHtml((d.chain || '').toUpperCase())}</span>
           <span class="pool-host">${escapeHtml(pool.host || 'no pool')}</span>
           ${pool.onFallback ? '<span class="pool-fallback-badge" data-tip="On the SECONDARY pool — the primary is unreachable. Check its host/port.">fallback</span>' : ''}
         </div>
