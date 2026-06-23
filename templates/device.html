@@ -513,7 +513,18 @@ function renderDetail(d) {
         <span class="ip">${d.ip}</span>
         <span class="meta-line">
           <span class="accent">${escapeHtml(d.model || '')}</span> · ${escapeHtml(d.version || '')} ·
-          uptime ${fmtUptime(m.uptime)}
+          uptime ${fmtUptime(m.uptime)} ·
+          <span class="chain-pick" data-tip="Which coin this miner is mining — it drives the device's grouping on the home page. 'Auto' detects from the pool URL/address, but a legacy 1.../3... address on a private-IP pool is identical between BTC and BCH, so pin it here if it lands in the wrong group.">chain
+            <select id="chain-select" onchange="setChain(this.value)">
+              <option value="auto"${!d.chainOverride ? ' selected' : ''}>auto · ${escapeHtml((d.chain || 'btc').toUpperCase())}</option>
+              <option value="btc"${d.chainOverride === 'btc' ? ' selected' : ''}>BTC</option>
+              <option value="bch"${d.chainOverride === 'bch' ? ' selected' : ''}>BCH</option>
+              <option value="bsv"${d.chainOverride === 'bsv' ? ' selected' : ''}>BSV</option>
+              <option value="xec"${d.chainOverride === 'xec' ? ' selected' : ''}>XEC</option>
+              <option value="dgb"${d.chainOverride === 'dgb' ? ' selected' : ''}>DGB</option>
+              <option value="nmc"${d.chainOverride === 'nmc' ? ' selected' : ''}>NMC</option>
+            </select>
+          </span>
         </span>
       </div>
       <div class="actions">
@@ -823,6 +834,14 @@ window.renameDevice = async () => {
     await api('/api/devices/rename', 'POST', { ip: DEVICE_IP, label });
     poll();
   } catch (e) { toast('Rename failed: ' + e.message, 'error'); }
+};
+
+window.setChain = async (chain) => {
+  try {
+    await api('/api/devices/chain', 'POST', { ip: DEVICE_IP, chain });
+    toast(chain === 'auto' ? 'Chain set to auto-detect' : 'Chain pinned to ' + chain.toUpperCase(), 'info');
+    poll();
+  } catch (e) { toast('Could not set chain: ' + (e.message || e), 'error'); }
 };
 
 // ----- Long-term history (Pro) -----

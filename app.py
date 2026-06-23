@@ -160,10 +160,11 @@ def save_config(cfg):
         json.dump(cfg, f, indent=2)
 
 
-def init_device_state(ip, label):
+def init_device_state(ip, label, chain_override=None):
     return {
         "ip": ip,
         "label": label,
+        "chain_override": (chain_override or None),  # manual chain pin; None = auto-detect
         "history": deque(maxlen=HISTORY_POINTS),
         "latest": None,
         "online": False,
@@ -293,7 +294,7 @@ def poll_one(ip, label):
             elif cur_block_found > s["prev_block_found"]:
                 delta = cur_block_found - s["prev_block_found"]
                 s["prev_block_found"] = cur_block_found
-                chain_id = _infer_chain(
+                chain_id = s.get("chain_override") or _infer_chain(
                     data.get("stratumURL", ""),
                     data.get("stratumPort", 0),
                     data.get("stratumUser", ""),
@@ -873,9 +874,10 @@ def _block_probability_math(hashrate_ghs, network_diff, best_diff_value):
         "proximity":    round(proximity, 4),
     }
 
-def _solo_block_payload(stratum_url, stratum_port, hashrate_ghs, best_diff_str, stratum_user=""):
-    """Top-level builder for the device_summary 'blockProbability' field. None if unavailable."""
-    chain_id = _infer_chain(stratum_url, stratum_port, stratum_user)
+def _solo_block_payload(stratum_url, stratum_port, hashrate_ghs, best_diff_str, stratum_user="", chain=None):
+    """Top-level builder for the device_summary 'blockProbability' field. None if unavailable.
+    `chain` pins the chain (manual override); falls back to auto-detection when None."""
+    chain_id = chain or _infer_chain(stratum_url, stratum_port, stratum_user)
     stats = _chain_stats(chain_id)
     if not stats:
         return None
@@ -954,6 +956,12 @@ def device_summary(s):
 
     best_diff_value = _parse_diff(latest.get("bestDiff", "0"))
     best_session_diff_value = _parse_diff(latest.get("bestSessionDiff", "0"))
+    # Manual chain pin wins over auto-detection. The detector can't tell a BCH
+    # legacy address from a BTC one (identical format) on a private-IP pool, so
+    # users pointing miners at their own node need to pin it.
+    chain_id = s.get("chain_override") or _infer_chain(
+        latest.get("stratumURL", ""), latest.get("stratumPort", 0), latest.get("stratumUser", "")
+    )
     return {
         "ip": s["ip"],
         "label": s["label"],
@@ -1020,17 +1028,15 @@ def device_summary(s):
         "recommendations": recs,
         "severity": _max_severity(recs),
         "autotune": _autotune_summary(s),
-        "chain": _infer_chain(
-            latest.get("stratumURL", ""),
-            latest.get("stratumPort", 0),
-            latest.get("stratumUser", ""),
-        ),
+        "chain": chain_id,
+        "chainOverride": s.get("chain_override") or None,
         "blockProbability": _solo_block_payload(
             latest.get("stratumURL", ""),
             latest.get("stratumPort", 0),
             ghs,
             latest.get("bestDiff", "0"),
             latest.get("stratumUser", ""),
+            chain=chain_id,
         ),
         "history": [
             {
@@ -3221,6 +3227,48 @@ def api_device_rename():
     return jsonify({"ok": True})
 
 
+# Chains a user can manually pin a device to. Matches the chain_name map +
+# the stats fetchers; auto-detection remains the default.
+_VALID_CHAINS = {"btc", "bch", "bsv", "xec", "dgb", "nmc"}
+
+
+@app.route("/api/devices/chain", methods=["POST"])
+def api_device_chain():
+    """Manually pin a device's chain, overriding auto-detection. Send chain="" or
+    "auto" to clear and return to auto-detect. Needed when a miner points at a
+    private-IP node with a legacy (1.../3...) address — those are byte-identical
+    between BTC and BCH, so the detector can't tell them apart and defaults to BTC."""
+    body = request.get_json(force=True)
+    ip = body.get("ip")
+    chain = (body.get("chain") or "").strip().lower()
+    if not ip:
+        return jsonify({"error": "ip required"}), 400
+    if chain in ("", "auto"):
+        chain = None
+    elif chain not in _VALID_CHAINS:
+        return jsonify({"error": f"chain must be one of {sorted(_VALID_CHAINS)} or 'auto'"}), 400
+
+    with config_lock:
+        cfg = load_config()
+        found = False
+        for d in cfg["devices"]:
+            if d["ip"] == ip:
+                found = True
+                if chain:
+                    d["chain"] = chain
+                else:
+                    d.pop("chain", None)
+        if not found:
+            return jsonify({"error": "device not tracked"}), 404
+        save_config(cfg)
+
+    with state_lock:
+        if ip in state:
+            state[ip]["chain_override"] = chain
+
+    return jsonify({"ok": True, "chain": chain or "auto"})
+
+
 @app.route("/api/devices/tune", methods=["POST"])
 def api_device_tune():
     """Apply settings (frequency, coreVoltage, fanspeed, autofanspeed) to a device."""
@@ -4017,7 +4065,7 @@ def main():
     cfg = load_config()
     with state_lock:
         for d in cfg.get("devices", []):
-            state[d["ip"]] = init_device_state(d["ip"], d["label"])
+            state[d["ip"]] = init_device_state(d["ip"], d["label"], d.get("chain"))
 
     global poll_thread
     poll_thread = threading.Thread(target=poll_loop, daemon=True)

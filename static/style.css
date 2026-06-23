@@ -1172,6 +1172,18 @@
   .detail-hero .ip { color: var(--dim); font-size: 13px; }
   .detail-hero .meta-line { color: var(--dim); font-size: 11px; }
   .detail-hero .meta-line .accent { color: var(--accent); }
+  .chain-pick { white-space: nowrap; }
+  .chain-pick select {
+    margin-left: 3px;
+    padding: 1px 4px;
+    font-size: 11px;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+  }
   .detail-hero .actions { display: flex; gap: 6px; }
   .detail-hero .actions button { font-size: 10px; padding: 7px 12px; }
 
