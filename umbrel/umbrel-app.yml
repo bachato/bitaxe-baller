@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.16.5"
+version: "1.16.6"
 
 port: 13700
 description: >-
@@ -67,6 +67,13 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
+  v1.16.6 — Two home-page improvements. (1) Each device card now shows
+  which pool it's mining to (host:port), with an amber "fallback" flag if
+  it dropped to its secondary. (2) New per-device chain selector — pin a
+  miner to BTC / BCH / etc. when it points at your own node with a legacy
+  address the auto-detector can't tell apart.
+
+
   v1.16.5 — Remote access is now free (limited to 1 miner). You no longer
   need Pro to view your fleet from outside your LAN or on the mobile app —
   pair your phone and it just works. Free shows your first miner; Pro shows
