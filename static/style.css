@@ -2525,6 +2525,36 @@
   }
   .best-share-badge.session .bs-v { color: var(--info); }
 
+  .compact-pool {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--dim);
+    min-width: 0;
+  }
+  .compact-pool .pool-ico { opacity: 0.6; flex: none; }
+  .compact-pool .pool-host {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .compact-pool.on-fallback .pool-host { color: var(--warn); font-weight: 600; }
+  .compact-pool .pool-fallback-badge {
+    flex: none;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--warn-soft);
+    border: 1px solid var(--warn-border);
+    color: var(--warn);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
   /* ---------- live share feed (device detail page) ---------- */
   .detail-section.share-feed-section { /* inherits .detail-section */ }
   .share-feed {

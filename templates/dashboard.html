@@ -234,6 +234,18 @@ function topRecLine(d) {
   return { sev: r.severity, html: `<strong>${escapeHtml(r.title)}</strong> · ${escapeHtml(r.body)}` };
 }
 
+// Active pool for a device: the fallback pool when the device has dropped to
+// its secondary, otherwise the primary. Returns {host, onFallback}. host is
+// trimmed of any protocol prefix and includes :port so users can verify it.
+function _activePool(d) {
+  const s = d.stratum || {};
+  const onFallback = !!s.usingFallback;
+  let raw = (onFallback ? s.fallbackUrl : s.url) || s.url || '';
+  const host = String(raw).replace(/^stratum\+tcp:\/\//i, '').replace(/^[a-z]+:\/\//i, '');
+  const port = onFallback ? s.fallbackPort : s.port;
+  return { host: host ? (port ? `${host}:${port}` : host) : '', onFallback };
+}
+
 function renderCompactDevice(d) {
   const ip = d.ip;
   const href = `/device/${ip}`;
@@ -260,6 +272,7 @@ function renderCompactDevice(d) {
   }
 
   const m = d.metrics, e = d.efficiency, sh = d.shares || {}, r = d.rolling;
+  const pool = _activePool(d);
   const sev = d.severity || 'good';
   const sevClass = `health-${sev}`;
   const top = topRecLine(d);
@@ -303,6 +316,11 @@ function renderCompactDevice(d) {
         <div class="compact-shares" data-tip="Best-share difficulty: highest-difficulty share this miner has ever submitted ('all-time') vs since the device's last firmware reset ('session'). Best-share is a lottery metric — small miners can occasionally beat big ones on luck.">
           <span class="best-share-badge"><span class="bs-l">best</span><span class="bs-v">${formatDiff(m.bestDiff)}</span></span>
           <span class="best-share-badge session"><span class="bs-l">session</span><span class="bs-v">${formatDiff(m.bestSessionDiff)}</span></span>
+        </div>
+        <div class="compact-pool${pool.onFallback ? ' on-fallback' : ''}" data-tip="The pool this miner is currently mining to. A 'fallback' tag means it couldn't reach its primary pool and dropped to the secondary — verify the primary pool's address and port on the device page.">
+          <span class="pool-ico">⛏</span>
+          <span class="pool-host">${escapeHtml(pool.host || 'no pool')}</span>
+          ${pool.onFallback ? '<span class="pool-fallback-badge" data-tip="On the SECONDARY pool — the primary is unreachable. Check its host/port.">fallback</span>' : ''}
         </div>
         <div class="compact-rec ${top.sev}">
           <span class="text">${top.html}</span>
