@@ -35,10 +35,24 @@ one-click-pushes AxeOS versions we've blessed, so a bad release can't auto-brick
 so the device comes back up with matching UI + firmware in one reboot. Reversed, you get a
 window where new firmware talks to the old web UI.
 
-## Backend — curated firmware catalog (`bitaxe-baller-site`)
+## Backend — curated firmware catalog (`bitaxe-baller-site`) — ✅ BUILT
 
 A curated, public, read-only catalog. We track official esp-miner GitHub releases
 (`bitaxeorg/ESP-Miner`) and **bless** the ones we've vetted.
+
+**Key fact (verified against a real release): the OTA binaries are UNIVERSAL.**
+A release ships one `esp-miner.bin` (~1.6 MB) + one `www.bin` (~3 MB) that apply to
+*every* Bitaxe board — the firmware detects the board at runtime. The per-board
+`esp-miner-factory-NNN-v*.bin` files (~15 MB) are USB **factory** images for initial
+flashing, **not** OTA — we never touch them. So **OTA needs no per-board matching**
+and the bricking-by-wrong-board risk is essentially gone. We store the pair under
+`board_version 0` (= all boards); non-zero is reserved for the rare future case a
+board ever needs its own OTA binary.
+
+**Auto-import (✅ built):** a daily cron pulls the latest release and, if new,
+downloads + checksums the universal pair and inserts it as an **unblessed draft**
+(plus a `⟳ check for updates now` admin button). Human still blesses to publish —
+automation stocks the shelf, the gate stays manual.
 
 ### Schema
 ```sql
@@ -52,8 +66,8 @@ CREATE TABLE firmware_releases (
 );
 CREATE TABLE firmware_assets (
   version       TEXT NOT NULL,
-  board_version INTEGER NOT NULL,      -- 601, ...
-  asic_model    TEXT NOT NULL,         -- 'BM1370'
+  board_version INTEGER NOT NULL,      -- 0 = all boards (universal OTA); non-zero reserved
+  asic_model    TEXT NOT NULL,         -- 'all' for universal, else e.g. 'BM1370'
   kind          TEXT NOT NULL CHECK (kind IN ('firmware','www')),
   url           TEXT NOT NULL,         -- official GitHub asset URL
   sha256        TEXT NOT NULL,         -- WE compute + store this
@@ -92,12 +106,12 @@ catalog version for its `boardVersion`. If any miner is behind → fleet has an 
 Selected miners run **sequentially** (concurrency 1 by default; stop-on-failure):
 ```
 for dev in selected:
-  info = GET /api/system/info                 # reachable? read boardVersion + current ver
+  info = GET /api/system/info                 # reachable? read current ver
   if current == target: SKIP (already current)
-  asset = catalog.match(dev.boardVersion, dev.asic_model, target)
-  if not asset: FAIL "no firmware for board {boardVersion}"   # never flash a mismatch
-  www, fw = download(asset.www, asset.firmware)               # from cache or GitHub
-  if sha256(www)!=asset.www_sha256 or sha256(fw)!=asset.fw_sha256: FAIL "checksum mismatch"
+  pair = catalog[target]                        # universal esp-miner.bin + www.bin (board 0)
+  if not pair: FAIL "no blessed firmware for {target}"
+  www, fw = download(pair.www, pair.firmware)                # from cache or GitHub
+  if sha256(www)!=pair.www_sha256 or sha256(fw)!=pair.fw_sha256: FAIL "checksum mismatch"
   POST /api/system/pause                       # best-effort
   POST /api/system/OTAWWW  (www)               # wait for ok
   POST /api/system/OTA     (fw)                # reboots
@@ -119,8 +133,10 @@ Table of miners: name · current ver · → target ver · checkbox (Pro multi-se
 boards in the selection). "Update selected" (Pro) primary button.
 
 ## Safety rules (non-negotiable)
-1. **Board match required** — only ever push the asset whose `board_version`+`asic_model`
-   matches the device. No match → skip with a loud warning. This is the anti-brick rule.
+1. **Only push blessed, official, universal OTA binaries.** OTA is board-agnostic, so
+   there's no per-board file to mis-pick (the per-board *factory* images are USB-only and
+   we never touch them). Still: confirm the device is a supported Bitaxe running AxeOS
+   before flashing, and only the user-supplied file path on the free/manual flow.
 2. **Checksum verify** every binary before flashing.
 3. **Sequential + stop-on-failure** — one bad release can't take out the fleet at once.
 4. **Confirm modal** — "You're flashing firmware on N miners" with the version diff.
@@ -134,12 +150,11 @@ Server-side `is_pro_active()` gates: catalog auto-download, multi-select, and th
 manual flash. (Mirror the existing bulk-tune gating.)
 
 ## Build phases
-1. **Backend catalog** + admin import/bless (independent, ships on the site).
-2. **Version detection + notice bar** (free; no flashing yet — pure value, low risk).
+1. ✅ **DONE — Backend catalog** + admin import/bless + **daily auto-import** (shipped on the site).
+2. **Version detection + notice bar** (free; no flashing yet — pure value, low risk). ← next
 3. **Single-device flash orchestration** (free, manual files) — get OTAWWW→OTA→verify rock-solid on one device first.
 4. **Pro: catalog download + bulk state machine** on top of (3).
 
 ## Open questions
-- Beta channel exposure (opt-in per user)?
-- Auto-fetch-latest (v2) once board-matching is battle-tested vs. always user-initiated.
+- Beta channel exposure (opt-in per user)? (auto-import currently tags prereleases `beta` but only imports `/releases/latest`, i.e. stable.)
 - Roll-forward only, or keep last-known-good for a manual re-flash on failure?
