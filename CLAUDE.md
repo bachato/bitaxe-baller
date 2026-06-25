@@ -61,9 +61,14 @@ config.json                  # device list (gitignored)
 
 ## Bitaxe API reference (device → us)
 
-- `GET /api/system/info` — full status JSON, including primary + fallback stratum config
+- `GET /api/system/info` — full status JSON, including primary + fallback stratum config. Board identity (for firmware matching): `boardVersion` (e.g. `601`), `ASICModel` (`BM1370`); running firmware version in `axeOSVersion` / `version`.
 - `PATCH /api/system` — body keys for tuning: `frequency`, `coreVoltage`, `fanspeed`, `autofanspeed`. Body keys for pool: `stratumURL`, `stratumPort`, `stratumUser`, `stratumPassword`, `stratumTLS`, `stratumSuggestedDifficulty`, plus `fallback*` versions. Pool changes apply on the next stratum reconnect — restart the device.
 - `POST /api/system/restart`
+- `POST /api/system/OTAWWW` — flash the web UI (`www.bin`, raw binary upload). Flash **first**.
+- `POST /api/system/OTA` — flash firmware (`esp-miner.bin`, raw binary upload). **Reboots**; flash **last**. AxeOS ships `www.bin` + `esp-miner.bin` as a matched pair per release.
+- `POST /api/system/pause` / `POST /api/system/resume` — pause / resume mining (e.g. around a flash).
+- `POST /api/system/identify` — blink the device screen/LED to physically locate it.
+- Endpoints verified against AxeOS **v2.14.0**. Bulk firmware-update design: `docs/firmware-bulk-update-spec.md`.
 
 ## Internal API (browser → Flask)
 
@@ -117,4 +122,4 @@ When adding new UI, default to writing a one-sentence tooltip for any non-obviou
 
 ## Test device
 
-- Local network test Gamma: `192.168.1.223` (BM1370, firmware v2.13.1)
+- Local network test Gamma: `192.168.1.223` (BM1370, `boardVersion` 601, AxeOS v2.14.0)
