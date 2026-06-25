@@ -2221,6 +2221,24 @@ def api_license_activate():
             return jsonify({"error": "License server response missing instance id"}), 502
 
         _save_license(fields)
+        # Pro just activated: if remote access is already running on the free
+        # path, restart the connector so it reconnects on the license-validated
+        # (full-fleet) path. Without this, a long-running install (e.g. Umbrel,
+        # which rarely restarts) stays capped at 1 device remotely until the
+        # next app restart.
+        try:
+            rc = _remote_access_cfg()
+            if rc["enabled"] and is_pro_active() and relay_client.is_running():
+                relay_client.stop()
+                relay_client.start(
+                    key,
+                    relay_url=rc.get("relay_url") or relay_client.default_relay_url(),
+                    app_port=PORT,
+                    app_version=APP_VERSION,
+                    install_uuid=_install_uuid(),
+                )
+        except Exception as e:
+            print(f"[relay] post-activation relay refresh failed: {type(e).__name__}: {e}", file=sys.stderr)
         return jsonify({"ok": True, "license": _license_summary(fields, active=is_pro_active())})
 
 
