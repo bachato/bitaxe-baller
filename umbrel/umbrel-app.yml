@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.16.6"
+version: "1.17.0"
 
 port: 13700
 description: >-
@@ -67,6 +67,15 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
+  v1.17.0 — AxeOS firmware update alerts + an Umbrel remote-access fix.
+  (1) Bitaxe Baller now flags when your miners are running out-of-date AxeOS
+  firmware, with links to what's new and how to update — curated, so only
+  versions we've vetted are surfaced. One-click bulk updating is on the way.
+  (2) Activating Pro on Umbrel now refreshes the remote connection
+  immediately, so your full fleet shows on the phone app and remote view
+  instead of capping at a single miner until a restart.
+
+
   v1.16.6 — Two home-page improvements. (1) Each device card now shows
   which pool it's mining to (host:port), with an amber "fallback" flag if
   it dropped to its secondary. (2) New per-device chain selector — pin a
