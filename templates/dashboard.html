@@ -163,6 +163,28 @@
   </details>
 </section>
 
+<style>
+  /* Firmware notice — deliberately distinct from the solid-green app-update banner:
+     an outlined fleet-level card with a hardware glyph, sitting above the cards. */
+  .firmware-banner { display:flex; align-items:center; gap:12px; margin:0 28px 14px; padding:11px 16px;
+    background: var(--bg-2, rgba(127,127,127,0.06)); border:1px solid var(--accent); border-left:4px solid var(--accent);
+    border-radius:8px; font-size:12px; letter-spacing:0.03em; }
+  .firmware-banner .fw-icon { font-size:16px; line-height:1; }
+  .firmware-banner .fw-version { color: var(--accent); }
+  .firmware-banner .fw-count { color: var(--dim); }
+  .firmware-banner a { color: var(--accent); text-decoration:none; font-weight:600; }
+  .firmware-banner a:hover { text-decoration:underline; }
+  .firmware-banner .fw-dismiss { margin-left:auto; background:none; border:none; color: var(--dim); cursor:pointer; font-size:16px; line-height:1; padding:0 4px; }
+</style>
+<div id="firmware-banner" class="firmware-banner" hidden
+     data-tip="Your miners' AxeOS firmware — separate from the Bitaxe Baller app itself. Updating is done on each miner.">
+  <span class="fw-icon">🔧</span>
+  <span class="fw-msg">AxeOS firmware update available — <strong class="fw-version">v…</strong> <span class="fw-count"></span></span>
+  <a class="fw-notes" target="_blank" rel="noopener" href="#">what's new</a>
+  <a class="fw-how" target="_blank" rel="noopener" href="https://bitaxeballer.com/support.html#cat-install">how to update</a>
+  <button class="fw-dismiss" type="button" aria-label="Dismiss firmware notice">×</button>
+</div>
+
 <main id="devices"></main>
 
 <section class="fleet-leaderboard" id="fleet-leaderboard" hidden>
@@ -1000,6 +1022,38 @@ setInterval(() => {
 
 poll();
 setInterval(poll, 5000);
+
+// ----- AxeOS firmware update notice (distinct from the app-update banner) -----
+let _fwBehind = new Set();
+async function checkFirmware() {
+  const bar = document.getElementById('firmware-banner');
+  if (!bar) return;
+  try {
+    const r = await api('/api/firmware-check');
+    _fwBehind = new Set((r.behind || []).map(b => b.ip));
+    const dismissed = localStorage.getItem('fwDismissed');
+    if (r.behind_count > 0 && r.latest && dismissed !== r.latest) {
+      bar.querySelector('.fw-version').textContent = r.latest;
+      bar.querySelector('.fw-count').textContent = '· ' + r.behind_count + ' of ' + r.total + ' miner' + (r.total === 1 ? '' : 's');
+      const notes = bar.querySelector('.fw-notes');
+      if (r.notes_url) { notes.href = r.notes_url; notes.hidden = false; } else { notes.hidden = true; }
+      bar.hidden = false;
+    } else {
+      bar.hidden = true;
+    }
+  } catch (e) { /* offline / catalog unreachable — keep the notice hidden */ }
+}
+(function () {
+  const bar = document.getElementById('firmware-banner');
+  if (!bar) return;
+  bar.querySelector('.fw-dismiss').addEventListener('click', () => {
+    const v = bar.querySelector('.fw-version').textContent;
+    if (v && v !== 'v…') localStorage.setItem('fwDismissed', v);   // re-shows when a newer version lands
+    bar.hidden = true;
+  });
+})();
+checkFirmware();
+setInterval(checkFirmware, 30 * 60 * 1000);
 
 // ---------- Block-found celebration ----------
 //

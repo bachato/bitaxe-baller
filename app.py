@@ -2833,6 +2833,65 @@ def api_update_check():
     return jsonify(_fetch_latest_release())
 
 
+# ----- AxeOS firmware update check (reads the curated catalog on the site) -----
+_FIRMWARE_CATALOG_URL = os.environ.get("BBR_FIRMWARE_CATALOG_URL", "https://bitaxeballer.com/api/firmware/catalog")
+_FIRMWARE_TTL = 6 * 3600
+_firmware_cache = {"fetched_at": 0.0, "payload": None}
+_firmware_cache_lock = threading.Lock()
+
+
+def _fetch_firmware_catalog() -> dict:
+    """Latest blessed AxeOS release from the curated catalog on the site. Cached 6h."""
+    now = time.time()
+    with _firmware_cache_lock:
+        cached = _firmware_cache["payload"]
+        if cached and (now - _firmware_cache["fetched_at"]) < _FIRMWARE_TTL:
+            return cached
+    payload = {"latest": None, "notes_url": None, "channel": None, "error": None}
+    try:
+        r = requests.get(_FIRMWARE_CATALOG_URL, headers={"User-Agent": f"BitaxeBaller/{APP_VERSION}"}, timeout=5)
+        r.raise_for_status()
+        releases = (r.json() or {}).get("releases", []) or []
+        if releases:
+            best = max(releases, key=lambda rel: _parse_semver(rel.get("version", "0")))
+            payload["latest"] = best.get("version")
+            payload["notes_url"] = best.get("notes_url")
+            payload["channel"] = best.get("channel")
+    except Exception as e:
+        payload["error"] = type(e).__name__
+    with _firmware_cache_lock:
+        _firmware_cache["fetched_at"] = now
+        _firmware_cache["payload"] = payload
+    return payload
+
+
+@app.route("/api/firmware-check")
+def api_firmware_check():
+    """Which tracked miners are behind the latest blessed AxeOS release. Drives the
+    fleet-level firmware notice + per-card badges. Separate from /api/devices so
+    that endpoint stays a backward-compatible array."""
+    cat = _fetch_firmware_catalog()
+    latest = cat.get("latest")
+    behind, total = [], 0
+    if latest:
+        latest_sem = _parse_semver(latest)
+        with state_lock:
+            for s in state.values():
+                total += 1
+                cur = (s.get("latest") or {}).get("version", "")
+                if cur and _parse_semver(cur) < latest_sem:
+                    behind.append({"ip": s["ip"], "label": s["label"], "current": cur})
+    return jsonify({
+        "latest": latest,
+        "notes_url": cat.get("notes_url"),
+        "channel": cat.get("channel"),
+        "behind": behind,
+        "behind_count": len(behind),
+        "total": total,
+        "error": cat.get("error"),
+    })
+
+
 # ----- In-place auto-install -----
 #
 # State machine: idle → downloading → verifying → installing → relaunching → (process exit)
