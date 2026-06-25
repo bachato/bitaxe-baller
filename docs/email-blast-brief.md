@@ -32,6 +32,31 @@ leaderboard, install warnings, and health/recommendations.
   app / remote view immediately after activating Pro (it could previously stay capped at
   one miner until a restart).
 
+### Free vs Pro on firmware updates — the upsell angle (use this!)
+
+The firmware feature is built to grow into a clear Free/Pro split. **Be honest about what's
+live vs coming** — the alert is the same for everyone today; the *effortless updating* is
+the Pro payoff that's on the way.
+
+| | **Free** | **Pro** |
+|---|---|---|
+| Out-of-date firmware alert | ✅ now | ✅ now |
+| "What's new" + safe/vetted version info | ✅ now | ✅ now |
+| How you actually update | Manually, **one miner at a time** — grab the two files (`www.bin` + `esp-miner.bin`) and flash each device yourself *(coming)* | **One click, whole fleet** — Baller fetches the vetted files and flashes every selected miner for you, in the right order *(coming)* |
+
+- **The pitch:** "Got 4+ miners? Updating firmware by hand — two files, every device, in the
+  right order — is the kind of chore Pro is *for*. One click, the whole fleet, safe versions
+  only." That's the quality-of-life win that pushes a multi-miner owner from Free to Pro.
+- ⚠️ Phrase the updating rows as **coming / in the works**, not shipped. What's shipped today
+  is the alert (both tiers) — see the don'ts.
+
+### While you're at it — the rest of what Pro already does (reminder block)
+
+A blast is a good moment to re-pitch Pro to free users. **These are all LIVE today:**
+bulk tuning across selected miners, auto-tune frequency sweeps with safety guardrails,
+90 days of local SQLite history, Discord webhook alerts, email alerts, and remote dashboard
+access to your **full** fleet (free remote is capped at 1 miner). **$29/year.**
+
 ## 3. (minor) Leaderboard verification email — self-resend
 
 Didn't get your leaderboard verification email? There's now a self-serve resend at
