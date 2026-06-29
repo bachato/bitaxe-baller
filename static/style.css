@@ -230,8 +230,18 @@
     font-size: 11px;
     color: var(--dim);
   }
+  .eta-tile .eta-prob {
+    margin-top: 7px;
+    padding-top: 7px;
+    border-top: 1px dashed var(--border);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .eta-tile .eta-prob .eta-odds {
+    color: var(--accent);
+  }
   .eta-tile .eta-sub {
-    margin-top: 4px;
+    margin-top: 6px;
     font-size: 11px;
     color: var(--dim);
   }

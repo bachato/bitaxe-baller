@@ -477,8 +477,15 @@ function renderFleetBlockEta(devices) {
     const usdText = c.rewardUsd > 0
       ? ' · $' + Math.round(c.rewardUsd).toLocaleString() + ' reward'
       : '';
+    // Same per-second rate expressed as the device page's "1 in N" odds, but
+    // for the whole fleet on this coin. 1 in N per window = expected one block
+    // per N windows on average.
+    const yearlyOneIn  = Math.max(1, Math.round(1 / (perSec * 86400 * 365)));
+    const monthlyOneIn = Math.max(1, Math.round(1 / (perSec * 86400 * 30)));
+    const oddsText = `<span class="eta-odds">1 in ${yearlyOneIn.toLocaleString()}</span> this year · <span class="eta-odds">1 in ${monthlyOneIn.toLocaleString()}</span> this month`;
     const noun = c.deviceCount === 1 ? 'device' : 'devices';
     const tip = `Expected time for ${c.deviceCount} ${c.chainName} ${noun} (${hashText} combined) to solve a block at current network difficulty. The actual block could come tomorrow or never — this is the long-run average expectation, not a deadline.`;
+    const oddsTip = `Odds of this whole ${c.chainName} fleet solving a block, at the current network difficulty. "1 in N" means one block expected per N years/months on average — it's a lottery, so it could land far sooner or later.`;
     return `
       <div class="eta-tile" data-chain="${c.chain}" data-tip="${escapeHtml(tip)}">
         <div class="eta-chain">${escapeHtml(c.chainName)} fleet</div>
@@ -486,6 +493,7 @@ function renderFleetBlockEta(devices) {
           <span class="eta-value">~${etaText}</span>
           <span class="eta-label">to next block</span>
         </div>
+        <div class="eta-prob" data-tip="${escapeHtml(oddsTip)}">odds of a block: ${oddsText}</div>
         <div class="eta-sub">${c.deviceCount} ${noun} · ${hashText}${usdText}</div>
       </div>
     `;
