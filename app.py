@@ -2866,11 +2866,38 @@ def _fetch_firmware_catalog() -> dict:
     return payload
 
 
+# Known Bitaxe board revisions (AxeOS `boardVersion`). The curated catalog ships stock
+# bitaxeorg/ESP-Miner, whose OTA binaries are universal across BITAXE boards — but NOT
+# across other vendors. NerdAxe/NerdQAxe run a different ESP-Miner fork; pushing the
+# Bitaxe image to one would be the WRONG firmware → brick. So firmware updating is
+# FAIL-CLOSED: a device is only offered the notice / flash when its boardVersion is a
+# recognized Bitaxe rev. Unknown boards (a NerdAxe, anything new) are still monitored +
+# tuned normally — we just never flash them. Confirmed on real hardware: 601, 602 (Gamma).
+# The non-Gamma entries are provisional — tighten against a real NerdAxe before the
+# v1.18.0 firmware release (ASICModel alone can't tell them apart; NerdQAxe++ is BM1370 too).
+_BITAXE_BOARD_VERSIONS = {
+    "200", "201", "202", "203", "204", "205",   # Ultra (BM1366)
+    "400", "401", "402", "403",                  # Supra (BM1368)
+    "600", "601", "602", "603", "604",           # Gamma (BM1370)
+    "700", "701", "702",                         # Gamma Turbo / Hero
+}
+
+
+def _is_bitaxe_board(info: dict) -> bool:
+    """True only if a device's AxeOS /api/system/info identifies it as a known Bitaxe
+    board we can safely flash with stock bitaxeorg firmware. Fail-closed: unknown or
+    missing boardVersion → False (monitored, but never flashed by us)."""
+    if not info:
+        return False
+    return str(info.get("boardVersion", "")).strip() in _BITAXE_BOARD_VERSIONS
+
+
 @app.route("/api/firmware-check")
 def api_firmware_check():
     """Which tracked miners are behind the latest blessed AxeOS release. Drives the
     fleet-level firmware notice + per-card badges. Separate from /api/devices so
-    that endpoint stays a backward-compatible array."""
+    that endpoint stays a backward-compatible array. Non-Bitaxe boards (e.g. a NerdAxe)
+    are excluded entirely — we don't flash them Bitaxe firmware (see _is_bitaxe_board)."""
     cat = _fetch_firmware_catalog()
     latest = cat.get("latest")
     behind, total = [], 0
@@ -2878,8 +2905,11 @@ def api_firmware_check():
         latest_sem = _parse_semver(latest)
         with state_lock:
             for s in state.values():
+                info = s.get("latest") or {}
+                if not _is_bitaxe_board(info):
+                    continue   # non-Bitaxe — never surface a firmware update for it
                 total += 1
-                cur = (s.get("latest") or {}).get("version", "")
+                cur = info.get("version", "")
                 if cur and _parse_semver(cur) < latest_sem:
                     behind.append({"ip": s["ip"], "label": s["label"], "current": cur})
     return jsonify({
@@ -3073,6 +3103,16 @@ def _flash_worker(target_version, items, www_path, fw_path, from_catalog):
         for it in items:
             ip, label = it["ip"], it["label"]
             try:
+                # Catalog flashes push stock Bitaxe firmware — refuse on any board that
+                # isn't a recognized Bitaxe, even if the API was hit directly. (Manual
+                # uploads are the user's own files + responsibility, so they're exempt.)
+                if from_catalog:
+                    try:
+                        if not _is_bitaxe_board(fetch_device(ip)):
+                            _flash_set(ip, "skipped", error="not a recognized Bitaxe board — won't flash Bitaxe firmware")
+                            continue
+                    except Exception:
+                        pass  # unreachable now will surface on the flash attempt below
                 # Already current? (Pro bulk may include mixed versions.) Skip, don't reflash.
                 if target_version and target_version != "(manual)":
                     try:
