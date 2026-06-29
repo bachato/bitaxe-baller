@@ -2875,11 +2875,17 @@ def _fetch_firmware_catalog() -> dict:
 # tuned normally — we just never flash them. Confirmed on real hardware: 601, 602 (Gamma).
 # The non-Gamma entries are provisional — tighten against a real NerdAxe before the
 # v1.18.0 firmware release (ASICModel alone can't tell them apart; NerdQAxe++ is BM1370 too).
+# Confirmed on real hardware: 601, 602 (Gamma). The 2xx/4xx entries are documented
+# Bitaxe families but UNVERIFIED here. Deliberately NO 7xx: a NerdQaxe++ "Revision 7"
+# could plausibly report a boardVersion in that range, and a false *inclusion* fails
+# OPEN → the exact wrong-firmware brick this guard exists to prevent. When unsure, leave
+# it OUT (a real Bitaxe just won't get the notice — annoying, not dangerous). Lock this
+# down against the real NerdAxe rev7's reported boardVersion before the v1.18.0 cut, and
+# ideally move it catalog-driven (the site already curates per-board).
 _BITAXE_BOARD_VERSIONS = {
-    "200", "201", "202", "203", "204", "205",   # Ultra (BM1366)
-    "400", "401", "402", "403",                  # Supra (BM1368)
-    "600", "601", "602", "603", "604",           # Gamma (BM1370)
-    "700", "701", "702",                         # Gamma Turbo / Hero
+    "200", "201", "202", "203", "204", "205",   # Ultra (BM1366) — documented, unverified
+    "400", "401", "402", "403",                  # Supra (BM1368) — documented, unverified
+    "600", "601", "602", "603", "604",           # Gamma (BM1370) — 601/602 hardware-confirmed
 }
 
 
@@ -3099,6 +3105,12 @@ def _flash_worker(target_version, items, www_path, fw_path, from_catalog):
             www_data = f.read()
         with open(fw_path, "rb") as f:
             fw_data = f.read()
+
+        # Binaries are in hand. The catalog path briefly marks everything "downloading"
+        # during the single upfront fetch — reset the not-yet-started ones to "queued"
+        # so a miner waiting its turn doesn't read "downloading" the whole time.
+        for it in items:
+            _flash_set(it["ip"], "queued")
 
         for it in items:
             ip, label = it["ip"], it["label"]
