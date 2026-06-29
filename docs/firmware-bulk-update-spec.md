@@ -150,10 +150,12 @@ Server-side `is_pro_active()` gates: catalog auto-download, multi-select, and th
 manual flash. (Mirror the existing bulk-tune gating.)
 
 ## Build phases
-1. ✅ **DONE — Backend catalog** + admin import/bless + **daily auto-import** (shipped on the site).
-2. **Version detection + notice bar** (free; no flashing yet — pure value, low risk). ← next
-3. **Single-device flash orchestration** (free, manual files) — get OTAWWW→OTA→verify rock-solid on one device first.
-4. **Pro: catalog download + bulk state machine** on top of (3).
+1. ✅ **DONE — Backend catalog** + admin import/bless + **daily auto-import** (shipped on the site, v1.17.0).
+2. ✅ **DONE — Version detection + notice bar** (free; shipped v1.17.0).
+3. ✅ **DONE — Single-device flash orchestration** (free, user-supplied files). `POST /api/firmware/flash` (multipart) → pause→OTAWWW→OTA→verify. Device-detail panel with two file pickers. **Verified end-to-end on a real Gamma (2.14.0→2.14.1, and a same-version reflash via the manual path).**
+4. ✅ **DONE — Pro: catalog download + bulk state machine.** `POST /api/firmware/flash` (json `{ips,version?}`) auto-fetches + sha256-verifies the blessed pair, flashes selected miners **sequentially, stop-on-failure**. Dashboard notice-bar "Update all →" opens a bulk modal (per-device progress + identify); device page gets a one-click "Update this miner". `GET /api/firmware/flash-progress` drives the UI. **Verified end-to-end on a real Gamma.** Ships in **v1.18.0**.
+
+**On-device OTA upload format (verified on a real Gamma):** AxeOS reads the **raw request body** (`Content-Type: application/octet-stream`) for both `/api/system/OTAWWW` and `/api/system/OTA` — NOT multipart. The firmware OTA reboots and often drops the connection before sending its HTTP response, so a post-upload `ConnectionError`/timeout is treated as success and confirmed via a version poll, not as a failure.
 
 ## Open questions
 - Beta channel exposure (opt-in per user)? (auto-import currently tags prereleases `beta` but only imports `/releases/latest`, i.e. stable.)

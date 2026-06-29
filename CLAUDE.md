@@ -80,6 +80,10 @@ config.json                  # device list (gitignored)
 - `POST /api/devices/{add,remove,rename,tune,preset,restart,reset_session}`
 - `POST /api/devices/pool` — body `{ip, stratumURL?, stratumPort?, ..., fallbackStratumURL?, ..., restart?}`. Validates and PATCHes the device, optionally restarts. Empty / missing fields are skipped (worker passwords blank-by-default).
 - `POST /api/scan` — scans the host's `/24` LAN for Bitaxes by probing `/api/system/info` on each address in parallel (64 workers, 1.5 s per request). Skips host self and already-added devices. Returns `{found, scanned, subnet, host, skipped_existing}`. RFC1918 ranges only.
+- `GET  /api/firmware-check` — which tracked miners are behind the latest **blessed** AxeOS version (reads the curated catalog, cached 6 h). Drives the fleet notice bar + per-device panel. Returns `{latest, notes_url, behind:[{ip,label,current}], behind_count, total}`.
+- `POST /api/firmware/flash` — start an AxeOS flash job. **Two shapes:** `multipart/form-data` (`ip` + files `www` + `firmware`) = **free** single-device manual flash (user supplies the two `.bin`s); `application/json` `{ips:[...], version?}` = **Pro** catalog flash (auto-fetches + sha256-verifies the blessed pair; bulk). Sequential, **stop-on-failure**. One job at a time (409 if busy).
+- `GET  /api/firmware/flash-progress` — live job state: `{active, done, version, error, devices:[{ip,label,phase,error}]}`. Phases: `queued→downloading→pausing→flashing_www→flashing_firmware→rebooting→verifying→done|failed|skipped`.
+- `POST /api/devices/identify` — body `{ip}`; blinks the miner's screen/LED (used by the bulk picker).
 
 The per-device summary includes a `recommendations` array of `{id, severity, title, body, action?}` objects. `action.type` is `tune` | `preset` | `reset_session`; `action.params` is the body for the matching endpoint. The frontend dispatches based on `action.type`.
 

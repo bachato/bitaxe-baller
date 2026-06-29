@@ -2758,3 +2758,15 @@
     .fleet-leaderboard-grid { grid-template-columns: 1fr; }
     .share-event { grid-template-columns: 60px 14px 1fr; gap: 6px; }
   }
+
+  /* === AxeOS firmware update — device detail panel === */
+  .firmware-device { border-left: 3px solid var(--accent); }
+  .firmware-device .fw-dev-status { font-size: 13px; margin: 0 0 12px; }
+  .firmware-device .fw-up { color: var(--accent); }
+  .firmware-device .fw-dev-hint { color: var(--dim); font-size: 12px; line-height: 1.5; margin: 10px 0 0; max-width: 640px; }
+  .fw-dev-manual { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+  .fw-file { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--dim); }
+  .fw-file input[type=file] { font-size: 12px; color: var(--text); }
+  .fw-dev-progress { margin-top: 12px; font-size: 13px; color: var(--text); font-weight: 600; }
+  .fw-dev-progress.fw-st-done { color: var(--accent); }
+  .fw-dev-progress.fw-st-failed { color: var(--bad, #ff6b6b); }
