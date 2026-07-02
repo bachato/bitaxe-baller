@@ -26,6 +26,13 @@ LICENSE_REVALIDATE_S = int(os.environ.get("RELAY_LICENSE_REVALIDATE_S", str(3600
 
 REQUEST_TIMEOUT_S = float(os.environ.get("RELAY_REQUEST_TIMEOUT_S", "15.0"))
 
+# /login brute-force brake: max attempts per client IP per window. Every
+# attempt costs an outbound call to the license server, so this protects
+# the LS as much as the relay. 10/min is far above any legitimate client
+# (the desktop logs in once per session; mobile once per app-open).
+LOGIN_RATE_MAX = int(os.environ.get("RELAY_LOGIN_RATE_MAX", "10"))
+LOGIN_RATE_WINDOW_S = int(os.environ.get("RELAY_LOGIN_RATE_WINDOW_S", "60"))
+
 DEV_LICENSE_KEY = os.environ.get("RELAY_DEV_LICENSE_KEY", "").strip()
 
 # Signing secret for session tokens. Must be stable across restarts in

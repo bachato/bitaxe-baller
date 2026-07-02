@@ -13,6 +13,17 @@
 # certbot rewrites the listen + ssl directives below in place; what's
 # here is the pre-certbot baseline.
 
+# Brute-force brake on /login (this file is included from http{}, so the
+# zone definition is legal here). Every login attempt costs the relay an
+# outbound call to the license server — throttle at the edge before it
+# ever reaches Python. The relay has a matching in-process throttle
+# (RELAY_LOGIN_RATE_MAX) as a second layer for bare deploys.
+# NOTE: if this box fronts with Cloudflare, make sure the global real-ip
+# config is in place (see the site's 00-cloudflare-real-ip.conf) so
+# $binary_remote_addr is the visitor, not the CF edge.
+limit_req_zone $binary_remote_addr zone=relay_login:10m rate=10r/m;
+limit_req_status 429;
+
 # HTTP → HTTPS redirect. certbot adds this automatically; leaving it
 # explicit here so the file makes sense if you read it cold.
 server {
@@ -38,6 +49,18 @@ server {
     # Modest access logging — relay traffic is steady but quiet.
     access_log /var/log/nginx/relay-access.log;
     error_log  /var/log/nginx/relay-error.log warn;
+
+    # Rate-limited exact match wins over the catch-all below; everything
+    # else (WS upgrades, /health) stays unthrottled.
+    location = /login {
+        limit_req zone=relay_login burst=5 nodelay;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     # The relay binds to 127.0.0.1:8787 (see bitaxe-baller-relay.service).
     # The single upstream is intentional — relay is single-instance for
