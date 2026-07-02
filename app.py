@@ -7,6 +7,7 @@ Then your default browser opens to the dashboard. Add devices and tune.
 """
 
 import base64
+import hashlib
 import json
 import re
 import socket
@@ -30,7 +31,7 @@ import relay_client
 # Info.plist/EXE version and the dashboard footer template should both
 # match this string. Update bump checklist: APP_VERSION here, the spec's
 # version="..." entries, and the v1.X.Y string in dashboard.html + device.html.
-APP_VERSION = "1.17.0"
+APP_VERSION = "1.18.0"
 
 
 # Test-mode override: pretend to be an older version so the auto-update flow
@@ -224,6 +225,7 @@ def poll_one(ip, label):
     ts = time.time()
     try:
         data = fetch_device(ip)
+        block_found_alert = None   # captured under the lock, dispatched (HTTP) AFTER it
         with state_lock:
             if ip not in state:
                 return
@@ -302,18 +304,17 @@ def poll_one(ip, label):
                 rec = _block_finds_record(ip, s["label"], data, chain_id)
                 rec["delta"] = delta  # so the UI can say "+N blocks found"
                 log_event(ip, f"🎉 BLOCK FOUND on {rec['chain_name']} (height {rec['block_height']}, diff {rec['best_diff']})")
-                # Fire as a high-priority alert too — block-found is the one
-                # event nobody wants to miss. Uses the same dispatch path as
-                # offline/temp alerts so Discord + email both ping if configured.
-                try:
-                    _alerts_dispatch(
-                        s["label"], ip, "block_found",
-                        f"🎉 BLOCK FOUND: {s['label']} on {rec['chain_name']}",
-                        f"Bitaxe {s['label']} just solved a {rec['chain_name']} block at height {rec['block_height']}. "
-                        f"Difficulty: {rec['best_diff']}. Look at your wallet — this is the lottery hit.",
-                    )
-                except Exception:
-                    pass
+                # Block-found is the one alert nobody wants to miss — but DON'T dispatch
+                # it here: _alerts_dispatch does Discord/email HTTP, and running that under
+                # state_lock means a slow or hung webhook freezes every device poll and the
+                # dashboard (/api/devices blocks on the same lock). Capture it now, fire it
+                # once the lock is released (below), same as the offline/temp alerts path.
+                block_found_alert = (
+                    s["label"], ip,
+                    f"🎉 BLOCK FOUND: {s['label']} on {rec['chain_name']}",
+                    f"Bitaxe {s['label']} just solved a {rec['chain_name']} block at height {rec['block_height']}. "
+                    f"Difficulty: {rec['best_diff']}. Look at your wallet — this is the lottery hit.",
+                )
 
             point = {
                 "t": ts,
@@ -331,6 +332,14 @@ def poll_one(ip, label):
                 "uptime": data.get("uptimeSeconds", 0),
             }
             s["history"].append(point)
+
+        # Block-found alert — dispatched OUTSIDE state_lock (does Discord/email HTTP).
+        if block_found_alert:
+            try:
+                _alerts_dispatch(block_found_alert[0], block_found_alert[1], "block_found",
+                                 block_found_alert[2], block_found_alert[3])
+            except Exception:
+                pass
 
         if was_offline:
             log_event(ip, "Device back online")
@@ -830,20 +839,44 @@ _CHAIN_FETCHERS = {
     "nmc": _fetch_nmc_stats,
 }
 
+_chain_wanted = set()   # chains any device is using — the background refresher keeps these warm
+
+
 def _chain_stats(chain_id):
-    """Cached fetch. Returns stale cache on transient failure; None if never fetched."""
-    now = time.time()
+    """NON-BLOCKING. Returns cached stats (or None if not fetched yet), and records the
+    chain as 'wanted' so the background refresher keeps it warm. It must NEVER do network
+    I/O inline: device_summary calls this while holding state_lock, so a synchronous fetch
+    here would hold the lock across a slow chain-API call and freeze every device poll AND
+    /api/devices (which builds summaries under the same lock) — the recurring 'not loading
+    data' hang. The refresh happens off-thread in _chain_stats_refresh_loop instead."""
+    _chain_wanted.add(chain_id)
     cached = _chain_stats_cache.get(chain_id)
-    if cached and (now - cached[0]) < _CHAIN_TTL_SEC:
-        return cached[1]
-    fetcher = _CHAIN_FETCHERS.get(chain_id)
-    if not fetcher:
-        return cached[1] if cached else None
-    fresh = fetcher()
-    if fresh:
-        _chain_stats_cache[chain_id] = (now, fresh)
-        return fresh
     return cached[1] if cached else None
+
+
+def _chain_stats_refresh_loop():
+    """Keep chain difficulty/price stats warm OFF the request/poll path. Wakes periodically
+    and (re)fetches only chains that are wanted and stale, so a slow or down chain API can
+    never hold state_lock. A newly-used chain's stats populate within one interval."""
+    while True:
+        try:
+            now = time.time()
+            for chain_id in list(_chain_wanted):
+                cached = _chain_stats_cache.get(chain_id)
+                if cached and (now - cached[0]) < _CHAIN_TTL_SEC:
+                    continue
+                fetcher = _CHAIN_FETCHERS.get(chain_id)
+                if not fetcher:
+                    continue
+                try:
+                    fresh = fetcher()   # network I/O — in THIS bg thread, never under a lock
+                    if fresh:
+                        _chain_stats_cache[chain_id] = (time.time(), fresh)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        time.sleep(20)
 
 def _block_probability_math(hashrate_ghs, network_diff, best_diff_value):
     """
@@ -942,12 +975,18 @@ def device_summary(s):
     freq = latest.get("frequency", 0) or 0
     firmware_expected = latest.get("expectedHashrate", 0) or 0
     small_cores = latest.get("smallCoreCount", 0) or 0
+    # Multi-ASIC boards (e.g. NerdQAxe++ = 4× BM1370) report per-chip smallCoreCount
+    # but whole-board hashRate. Scale the computed expectation by asicCount so a 4-ASIC
+    # board isn't shown at ~400% of "expected" (which also poisons fleet-outlier stats).
+    # Gammas report asicCount 1 (or omit it) → no change. firmware_expected, when present,
+    # is already whole-board so it's used as-is.
+    asic_count = latest.get("asicCount", 1) or 1
     if firmware_expected:
         expected_ghs = firmware_expected
     elif small_cores and freq:
-        expected_ghs = (small_cores * freq) / 1000
+        expected_ghs = (small_cores * freq) / 1000 * asic_count
     else:
-        expected_ghs = freq * 2.04 if freq > 0 else 0
+        expected_ghs = (freq * 2.04 * asic_count) if freq > 0 else 0
 
     session_secs = max(1, time.time() - s["session_start"])
     shares_per_min = (shares_delta / (session_secs / 60)) if session_secs >= 60 else 0
@@ -2865,11 +2904,66 @@ def _fetch_firmware_catalog() -> dict:
     return payload
 
 
+# Known Bitaxe board revisions (AxeOS `boardVersion`). The curated catalog ships stock
+# bitaxeorg/ESP-Miner, whose OTA binaries are universal across BITAXE boards — but NOT
+# across other vendors. NerdAxe/NerdQAxe run a different ESP-Miner fork; pushing the
+# Bitaxe image to one would be the WRONG firmware → brick. So firmware updating is
+# FAIL-CLOSED: a device is only offered the notice / flash when its boardVersion is a
+# recognized Bitaxe rev. Unknown boards (a NerdAxe, anything new) are still monitored +
+# tuned normally — we just never flash them. Confirmed on real hardware: 601, 602 (Gamma).
+# The non-Gamma entries are provisional — tighten against a real NerdAxe before the
+# v1.18.0 firmware release (ASICModel alone can't tell them apart; NerdQAxe++ is BM1370 too).
+# Confirmed on real hardware: 601, 602 (Gamma). The 2xx/4xx entries are documented
+# Bitaxe families but UNVERIFIED here. Deliberately NO 7xx: a NerdQaxe++ "Revision 7"
+# could plausibly report a boardVersion in that range, and a false *inclusion* fails
+# OPEN → the exact wrong-firmware brick this guard exists to prevent. When unsure, leave
+# it OUT (a real Bitaxe just won't get the notice — annoying, not dangerous). Lock this
+# down against the real NerdAxe rev7's reported boardVersion before the v1.18.0 cut, and
+# ideally move it catalog-driven (the site already curates per-board).
+_BITAXE_BOARD_VERSIONS = {
+    "200", "201", "202", "203", "204", "205",   # Ultra (BM1366) — documented, unverified
+    "400", "401", "402", "403",                  # Supra (BM1368) — documented, unverified
+    "600", "601", "602", "603", "604",           # Gamma (BM1370) — 601/602 hardware-confirmed
+}
+
+
+def _is_bitaxe_board(info: dict) -> bool:
+    """True only if a device's AxeOS /api/system/info identifies it as a known Bitaxe
+    board we can safely flash with stock bitaxeorg firmware. Fail-closed: unknown or
+    missing boardVersion → False (monitored, but never flashed by us)."""
+    if not info:
+        return False
+    return str(info.get("boardVersion", "")).strip() in _BITAXE_BOARD_VERSIONS
+
+
+# Stock AxeOS reports a clean semantic version like "v2.14.1". Firmware FORKS running on
+# genuine Bitaxe hardware (LottoAxe OS, NerdQAxe's fork, dev / -beta / -LTS builds) brand
+# their version string differently — extra parts, suffixes, or names. The board allowlist
+# can't catch a real Bitaxe board running someone else's firmware, so we ALSO require the
+# reported version to look like stock AxeOS before ever offering an update — otherwise a
+# one-click "update" could flash stock AxeOS OVER a user's custom firmware. Fail-closed.
+_AXEOS_VERSION_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+
+def _is_stock_axeos(info: dict) -> bool:
+    ver = str((info or {}).get("version") or (info or {}).get("axeOSVersion") or "").strip()
+    return bool(_AXEOS_VERSION_RE.match(ver))
+
+
+def _fw_flashable(info: dict) -> bool:
+    """A device is eligible for our AxeOS update flow only if it's BOTH a recognized Bitaxe
+    board AND running stock AxeOS (clean version string). This is the single gate for the
+    notice, the behind-check, and the actual flash — it guards against pushing stock Bitaxe
+    firmware onto another vendor's hardware OR over a Bitaxe running a custom firmware fork."""
+    return _is_bitaxe_board(info) and _is_stock_axeos(info)
+
+
 @app.route("/api/firmware-check")
 def api_firmware_check():
     """Which tracked miners are behind the latest blessed AxeOS release. Drives the
     fleet-level firmware notice + per-card badges. Separate from /api/devices so
-    that endpoint stays a backward-compatible array."""
+    that endpoint stays a backward-compatible array. Non-Bitaxe boards (e.g. a NerdAxe)
+    are excluded entirely — we don't flash them Bitaxe firmware (see _is_bitaxe_board)."""
     cat = _fetch_firmware_catalog()
     latest = cat.get("latest")
     behind, total = [], 0
@@ -2877,8 +2971,11 @@ def api_firmware_check():
         latest_sem = _parse_semver(latest)
         with state_lock:
             for s in state.values():
+                info = s.get("latest") or {}
+                if not _fw_flashable(info):
+                    continue   # non-Bitaxe board OR non-stock firmware — never surface an update
                 total += 1
-                cur = (s.get("latest") or {}).get("version", "")
+                cur = info.get("version", "")
                 if cur and _parse_semver(cur) < latest_sem:
                     behind.append({"ip": s["ip"], "label": s["label"], "current": cur})
     return jsonify({
@@ -2890,6 +2987,366 @@ def api_firmware_check():
         "total": total,
         "error": cat.get("error"),
     })
+
+
+# ----- AxeOS firmware flashing (free: single-device, user-supplied files; Pro: catalog auto-fetch + bulk) -----
+#
+# Orchestrates the two-file AxeOS OTA flash across one or more miners. The order is a
+# safety detail (see the spec): www.bin (web UI) FIRST — it does NOT reboot — then
+# esp-miner.bin (firmware) LAST, which reboots the device. If the upload format is ever
+# wrong, OTAWWW fails before anything reboots, so the device is left untouched.
+#
+# Per-device phases: queued → (downloading) → pausing → flashing_www → flashing_firmware
+#                    → rebooting → verifying → done | failed | skipped
+# Devices flash SEQUENTIALLY with stop-on-failure — one bad release can't take out the
+# whole fleet at once. The UI polls /api/firmware/flash-progress.
+
+FIRMWARE_CACHE_DIR = os.path.join(_DATA_DIR, "firmware-cache")
+_firmware_full_cache = {"fetched_at": 0.0, "releases": None}
+
+
+def _fetch_firmware_releases() -> list:
+    """Full blessed-release list (with assets + sha256) from the curated catalog. Cached 6h.
+    Separate from _fetch_firmware_catalog(), which trims to just the latest version string."""
+    now = time.time()
+    with _firmware_cache_lock:
+        if _firmware_full_cache["releases"] is not None and (now - _firmware_full_cache["fetched_at"]) < _FIRMWARE_TTL:
+            return _firmware_full_cache["releases"]
+    releases = []
+    try:
+        r = requests.get(_FIRMWARE_CATALOG_URL, headers={"User-Agent": f"BitaxeBaller/{APP_VERSION}"}, timeout=8)
+        r.raise_for_status()
+        releases = (r.json() or {}).get("releases", []) or []
+    except Exception:
+        releases = []
+    with _firmware_cache_lock:
+        _firmware_full_cache["fetched_at"] = now
+        _firmware_full_cache["releases"] = releases
+    return releases
+
+
+def _firmware_pair_for(version=None) -> "dict | None":
+    """The universal www + firmware asset pair for a blessed version (latest blessed if
+    version is None). Returns {'version', 'www': {url,sha256,size}, 'firmware': {...}} or
+    None if the version isn't blessed / is missing an asset."""
+    releases = _fetch_firmware_releases()
+    if not releases:
+        return None
+    if version:
+        rel = next((r for r in releases if r.get("version") == version), None)
+    else:
+        rel = max(releases, key=lambda r: _parse_semver(r.get("version", "0")))
+    if not rel:
+        return None
+    pair = {"version": rel.get("version"), "www": None, "firmware": None}
+    for a in rel.get("assets", []) or []:
+        # board_version 0 == universal OTA (applies to every board)
+        if a.get("board_version") in (0, None) and a.get("kind") in ("www", "firmware"):
+            pair[a["kind"]] = {"url": a.get("url"), "sha256": a.get("sha256"), "size": a.get("size")}
+    if not pair["www"] or not pair["firmware"]:
+        return None
+    return pair
+
+
+def _sha256_file(path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _firmware_cached_path(version, kind) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", version or "unknown")
+    d = os.path.join(FIRMWARE_CACHE_DIR, safe)
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, f"{kind}.bin")
+
+
+def _ensure_firmware_binary(version, kind, asset) -> str:
+    """Download (if not already cached + valid) and sha256-verify a binary; return its
+    local path. Raises ValueError on checksum mismatch — we NEVER flash an unverified binary."""
+    path = _firmware_cached_path(version, kind)
+    if os.path.exists(path) and _sha256_file(path) == asset.get("sha256"):
+        return path
+    tmp = path + ".part"
+    with requests.get(asset["url"], stream=True, timeout=60,
+                      headers={"User-Agent": f"BitaxeBaller/{APP_VERSION}"}) as r:
+        r.raise_for_status()
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    f.write(chunk)
+    got = _sha256_file(tmp)
+    if got != asset.get("sha256"):
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise ValueError(f"checksum mismatch on {kind}: expected {str(asset.get('sha256'))[:12]}…, got {got[:12]}…")
+    os.replace(tmp, path)
+    return path
+
+
+def _ota_upload(ip, endpoint, data: bytes, timeout=180) -> None:
+    """Stream a binary to an AxeOS OTA endpoint. AxeOS reads the raw request body
+    (octet-stream), not multipart. OTAWWW = web UI (no reboot); OTA = firmware (reboots)."""
+    r = requests.post(
+        f"http://{ip}/api/system/{endpoint}",
+        data=data,
+        headers={"Content-Type": "application/octet-stream", "Content-Length": str(len(data))},
+        timeout=timeout,
+    )
+    r.raise_for_status()
+
+
+def _device_version(ip, timeout=4) -> str:
+    info = fetch_device(ip, timeout=timeout)
+    return info.get("version") or info.get("axeOSVersion") or ""
+
+
+def _wait_for_version(ip, target, timeout=200) -> bool:
+    """Poll a rebooting device until it reports >= target version (or timeout)."""
+    tsem = _parse_semver(target)
+    deadline = time.time() + timeout
+    time.sleep(8)  # let the reboot actually start before we poll
+    while time.time() < deadline:
+        try:
+            cur = _device_version(ip)
+            if cur and _parse_semver(cur) >= tsem:
+                return True
+        except Exception:
+            pass  # device is mid-reboot / not yet answering — expected
+        time.sleep(5)
+    return False
+
+
+# Flash job state — single job at a time (sequential, stop-on-failure).
+_flash_state = {
+    "active": False,
+    "done": False,
+    "version": None,
+    "started_at": 0,
+    "error": None,
+    "devices": [],   # [{ip, label, phase, error}]
+}
+_flash_lock = threading.Lock()
+_flash_thread: "threading.Thread | None" = None
+
+
+def _flash_set(ip, phase, error=None):
+    with _flash_lock:
+        for d in _flash_state["devices"]:
+            if d["ip"] == ip:
+                d["phase"] = phase
+                if error is not None:
+                    d["error"] = error
+                break
+
+
+def _flash_worker(target_version, items, www_path, fw_path, from_catalog):
+    """Run the sequential flash job. items = [{ip,label}]. When from_catalog, www_path/
+    fw_path are None up front and resolved (download+verify) inside; otherwise they are
+    user-supplied file paths."""
+    try:
+        if from_catalog:
+            for it in items:
+                _flash_set(it["ip"], "downloading")
+            pair = _firmware_pair_for(target_version)
+            if not pair:
+                raise ValueError(f"no blessed firmware in catalog for {target_version or 'latest'}")
+            target_version = pair["version"]
+            with _flash_lock:
+                _flash_state["version"] = target_version
+            www_path = _ensure_firmware_binary(target_version, "www", pair["www"])
+            fw_path = _ensure_firmware_binary(target_version, "firmware", pair["firmware"])
+
+        with open(www_path, "rb") as f:
+            www_data = f.read()
+        with open(fw_path, "rb") as f:
+            fw_data = f.read()
+
+        # Binaries are in hand. The catalog path briefly marks everything "downloading"
+        # during the single upfront fetch — reset the not-yet-started ones to "queued"
+        # so a miner waiting its turn doesn't read "downloading" the whole time.
+        for it in items:
+            _flash_set(it["ip"], "queued")
+
+        for it in items:
+            ip, label = it["ip"], it["label"]
+            try:
+                # Catalog flashes push stock Bitaxe firmware — refuse unless the device is
+                # BOTH a recognized Bitaxe board AND running stock AxeOS, even if the API was
+                # hit directly. This prevents clobbering another vendor's hardware or a Bitaxe
+                # running a custom firmware fork (LottoAxe, NerdQAxe, etc.). (Manual uploads
+                # are the user's own files + explicit choice, so they're exempt.)
+                if from_catalog:
+                    try:
+                        if not _fw_flashable(fetch_device(ip)):
+                            _flash_set(ip, "skipped", error="not a stock-AxeOS Bitaxe — won't flash Bitaxe firmware over it")
+                            continue
+                    except Exception:
+                        pass  # unreachable now will surface on the flash attempt below
+                # Already current? (Pro bulk may include mixed versions.) Skip, don't reflash.
+                if target_version and target_version != "(manual)":
+                    try:
+                        cur = _device_version(ip)
+                        if cur and _parse_semver(cur) >= _parse_semver(target_version):
+                            _flash_set(ip, "skipped")
+                            continue
+                    except Exception:
+                        pass  # unreachable here will surface on the pause/flash below
+
+                _flash_set(ip, "pausing")
+                try:
+                    requests.post(f"http://{ip}/api/system/pause", timeout=5)
+                except Exception:
+                    pass  # best-effort; mining also stops during flash anyway
+
+                _flash_set(ip, "flashing_www")
+                _ota_upload(ip, "OTAWWW", www_data)      # web UI first — no reboot
+
+                _flash_set(ip, "flashing_firmware")
+                try:
+                    _ota_upload(ip, "OTA", fw_data)      # firmware last — reboots
+                except (requests.exceptions.ConnectionError,
+                        requests.exceptions.ReadTimeout,
+                        requests.exceptions.ChunkedEncodingError):
+                    # The device often reboots before sending its HTTP response, dropping the
+                    # connection. That's expected on success — the version poll below is the
+                    # real verdict, so don't treat a post-upload disconnect as a failure.
+                    pass
+
+                _flash_set(ip, "rebooting")
+                if target_version and target_version != "(manual)":
+                    ok = _wait_for_version(ip, target_version)
+                    _flash_set(ip, "verifying")
+                    if not ok:
+                        _flash_set(ip, "failed", error="device didn't report the new version in time")
+                        with _flash_lock:
+                            _flash_state["error"] = f"{label}: version not confirmed after flash"
+                        break  # stop-on-failure
+                else:
+                    # Manual files: we can't know the target version string — give it time to come back.
+                    time.sleep(20)
+                    try:
+                        _device_version(ip)
+                    except Exception:
+                        pass
+                _flash_set(ip, "done")
+                log_event(ip, f"AxeOS firmware flashed → {target_version}")
+            except Exception as e:
+                _flash_set(ip, "failed", error=str(e)[:160])
+                with _flash_lock:
+                    _flash_state["error"] = f"{label}: {str(e)[:140]}"
+                break  # stop-on-failure
+    except Exception as e:
+        with _flash_lock:
+            _flash_state["error"] = str(e)[:200]
+            for d in _flash_state["devices"]:
+                if d["phase"] in ("queued", "downloading"):
+                    d["phase"] = "failed"
+    finally:
+        if not from_catalog:   # user-supplied uploads were saved to temp files — clean them up
+            for pth in (www_path, fw_path):
+                try:
+                    if pth and os.path.exists(pth):
+                        os.remove(pth)
+                except OSError:
+                    pass
+        with _flash_lock:
+            _flash_state["active"] = False
+            _flash_state["done"] = True
+
+
+@app.route("/api/firmware/flash", methods=["POST"])
+def api_firmware_flash():
+    """Start a firmware flash job.
+
+    Two request shapes:
+      • multipart/form-data — FREE single-device manual flash: fields `ip`, files `www`
+        + `firmware` (user supplies the two .bin files). Single device only.
+      • application/json — PRO catalog flash: `{ips:[...], version?}` (auto-fetches the
+        blessed binaries; version defaults to latest blessed). Bulk (>1) is Pro-only.
+    """
+    global _flash_thread
+    with _flash_lock:
+        if _flash_state["active"]:
+            return jsonify({"error": "A firmware update is already running"}), 409
+
+    items, www_path, fw_path, from_catalog, target_version = [], None, None, False, None
+
+    if request.content_type and "multipart/form-data" in request.content_type:
+        ip = (request.form.get("ip") or "").strip()
+        if not ip:
+            return jsonify({"error": "ip required"}), 400
+        www = request.files.get("www")
+        fw = request.files.get("firmware")
+        if not www or not fw:
+            return jsonify({"error": "both www.bin and esp-miner.bin are required"}), 400
+        # Light sanity: the firmware is the rebooting one and is the larger binary; warn on
+        # obviously-swapped files by name, but don't hard-block (names vary).
+        os.makedirs(FIRMWARE_CACHE_DIR, exist_ok=True)
+        import tempfile
+        wfd, www_path = tempfile.mkstemp(suffix="_www.bin", dir=FIRMWARE_CACHE_DIR); os.close(wfd)
+        ffd, fw_path = tempfile.mkstemp(suffix="_esp-miner.bin", dir=FIRMWARE_CACHE_DIR); os.close(ffd)
+        www.save(www_path)
+        fw.save(fw_path)
+        target_version = "(manual)"
+        with state_lock:
+            label = state.get(ip, {}).get("label", ip)
+        items = [{"ip": ip, "label": label}]
+    else:
+        body = request.get_json(force=True) or {}
+        ips = body.get("ips") or ([body["ip"]] if body.get("ip") else [])
+        ips = [str(x).strip() for x in ips if str(x).strip()]
+        if not ips:
+            return jsonify({"error": "ips required"}), 400
+        # Catalog auto-fetch is a Pro convenience; bulk is Pro. Free must supply files (multipart).
+        if not is_pro_active():
+            return jsonify({"error": "Auto-update from the catalog is a Pro feature. On the free tier, update a single miner by supplying the two .bin files yourself."}), 403
+        if len(ips) > 1 and not is_pro_active():
+            return jsonify({"error": "Bulk update is a Pro feature"}), 403
+        from_catalog = True
+        target_version = body.get("version")
+        with state_lock:
+            items = [{"ip": ip, "label": state.get(ip, {}).get("label", ip)} for ip in ips]
+
+    with _flash_lock:
+        _flash_state.update({
+            "active": True, "done": False, "version": target_version,
+            "started_at": time.time(), "error": None,
+            "devices": [{"ip": it["ip"], "label": it["label"], "phase": "queued", "error": None} for it in items],
+        })
+    _flash_thread = threading.Thread(
+        target=_flash_worker, args=(target_version, items, www_path, fw_path, from_catalog), daemon=True)
+    _flash_thread.start()
+    return jsonify({"ok": True, "started": True, "count": len(items)})
+
+
+@app.route("/api/firmware/flash-progress")
+def api_firmware_flash_progress():
+    with _flash_lock:
+        return jsonify({
+            "active": _flash_state["active"],
+            "done": _flash_state["done"],
+            "version": _flash_state["version"],
+            "error": _flash_state["error"],
+            "devices": [dict(d) for d in _flash_state["devices"]],
+        })
+
+
+@app.route("/api/devices/identify", methods=["POST"])
+def api_device_identify():
+    """Blink a miner's screen/LED so the user can tell which physical box it is."""
+    ip = (request.get_json(force=True) or {}).get("ip", "").strip()
+    if not ip:
+        return jsonify({"error": "ip required"}), 400
+    try:
+        requests.post(f"http://{ip}/api/system/identify", timeout=5)
+    except Exception as e:
+        return jsonify({"error": str(e)[:120]}), 502
+    return jsonify({"ok": True})
 
 
 # ----- In-place auto-install -----
@@ -4147,6 +4604,9 @@ def main():
     global poll_thread
     poll_thread = threading.Thread(target=poll_loop, daemon=True)
     poll_thread.start()
+
+    # Keep chain difficulty/price stats warm off the poll path (never under state_lock).
+    threading.Thread(target=_chain_stats_refresh_loop, daemon=True).start()
 
     lan_ip = detect_lan_ip()
 

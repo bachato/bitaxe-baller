@@ -57,6 +57,11 @@
 
 <a class="back-link" href="/">← back to overview</a>
 
+<section class="detail-section firmware-device" id="fw-device-section" hidden>
+  <h2 data-tip="Your miner's AxeOS firmware (the www.bin web UI + esp-miner.bin firmware) — separate from the Bitaxe Baller app. Only versions we've vetted are offered.">AxeOS firmware update</h2>
+  <div id="fw-device-body"></div>
+</section>
+
 <main id="detail-root">
   <div class="empty"><div class="big">loading…</div></div>
 </main>
@@ -93,7 +98,7 @@
 </section>
 
 <footer>
-  <div>Bitaxe Baller v1.17.0 · no warranty, use at your own risk</div>
+  <div>Bitaxe Baller v1.18.0 · no warranty, use at your own risk</div>
   <div class="credits">made with <span class="heart">♥</span> in NH, by <a href="https://465-media.com" target="_blank" rel="noopener">465-media.com</a></div>
   <div>last update <span id="last-update">—</span></div>
 </footer>
@@ -1029,6 +1034,108 @@ async function gateAutotuneSection() {
   locked.hidden = proActive;
   content.hidden = !proActive;
 }
+
+// ----- AxeOS firmware update (this device) -----
+let _fwDevPro = null, _fwDevFlashing = false;
+async function _fwDevIsPro() {
+  if (_fwDevPro !== null) return _fwDevPro;
+  try { _fwDevPro = !!(await api('/api/license/status')).active; } catch (e) { _fwDevPro = false; }
+  return _fwDevPro;
+}
+const FW_DEV_PHASE = {
+  queued: 'queued', downloading: 'downloading…', pausing: 'pausing…',
+  flashing_www: 'flashing web UI…', flashing_firmware: 'flashing firmware…',
+  rebooting: 'rebooting…', verifying: 'verifying…', done: 'done ✓',
+  failed: 'failed ✗', skipped: 'already current',
+};
+
+async function checkDeviceFirmware() {
+  const sec = document.getElementById('fw-device-section');
+  const body = document.getElementById('fw-device-body');
+  if (!sec || !body || _fwDevFlashing) return;   // don't clobber an in-progress flash
+  let r;
+  try { r = await api('/api/firmware-check'); } catch (e) { sec.hidden = true; return; }
+  const me = (r.behind || []).find(b => b.ip === DEVICE_IP);
+  if (!me || !r.latest) { sec.hidden = true; return; }
+  const pro = await _fwDevIsPro();
+  const notes = r.notes_url ? ` · <a href="${escapeHtml(r.notes_url)}" target="_blank" rel="noopener">what's new</a>` : '';
+  let controls;
+  if (pro) {
+    controls = `<button type="button" class="primary" id="fw-dev-update">Update this miner → ${escapeHtml(r.latest)}</button>
+      <p class="fw-dev-hint">Baller downloads the vetted ${escapeHtml(r.latest)} files, flashes the web UI then the firmware, and reboots. ~1–3 min; mining resumes automatically.</p>`;
+  } else {
+    const rel = r.notes_url || 'https://github.com/bitaxeorg/ESP-Miner/releases';
+    controls = `<div class="fw-dev-manual">
+        <label class="fw-file"><span>www.bin (web UI)</span><input type="file" id="fw-dev-www" accept=".bin"></label>
+        <label class="fw-file"><span>esp-miner.bin (firmware)</span><input type="file" id="fw-dev-fw" accept=".bin"></label>
+        <button type="button" class="primary" id="fw-dev-flash">Flash this miner</button>
+      </div>
+      <p class="fw-dev-hint">Download the two files from the <a href="${escapeHtml(rel)}" target="_blank" rel="noopener">${escapeHtml(r.latest)} release</a> (universal across boards). Baller flashes them in the correct order and verifies. One-click, fleet-wide updating is a <strong>Pro</strong> feature.</p>`;
+  }
+  body.innerHTML = `
+    <p class="fw-dev-status">This miner is on <strong>${escapeHtml(me.current || '?')}</strong> — <strong class="fw-up">${escapeHtml(r.latest)}</strong> is available.${notes}</p>
+    ${controls}
+    <div id="fw-dev-progress" class="fw-dev-progress" hidden></div>`;
+  sec.hidden = false;
+  const upd = document.getElementById('fw-dev-update');
+  if (upd) upd.onclick = () => startDeviceFlash('catalog');
+  const fl = document.getElementById('fw-dev-flash');
+  if (fl) fl.onclick = () => startDeviceFlash('upload');
+}
+
+function _fwDevSetBtns(disabled) {
+  ['fw-dev-update', 'fw-dev-flash', 'fw-dev-www', 'fw-dev-fw'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.disabled = disabled;
+  });
+}
+
+async function startDeviceFlash(mode) {
+  const prog = document.getElementById('fw-dev-progress');
+  if (mode === 'upload') {
+    const www = document.getElementById('fw-dev-www').files[0];
+    const fw = document.getElementById('fw-dev-fw').files[0];
+    if (!www || !fw) { toast('Pick both .bin files first', 'warn'); return; }
+    if (!confirm('Flash these files to this miner? It will pause mining and reboot.')) return;
+    _fwDevFlashing = true; _fwDevSetBtns(true);
+    prog.hidden = false; prog.textContent = 'Uploading…';
+    const fd = new FormData();
+    fd.append('ip', DEVICE_IP); fd.append('www', www); fd.append('firmware', fw);
+    try {
+      const res = await fetch('/api/firmware/flash', { method: 'POST', body: fd });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || res.status);
+    } catch (e) { _fwDevFlashing = false; _fwDevSetBtns(false); prog.textContent = 'Error: ' + e.message; return; }
+  } else {
+    if (!confirm('Update this miner to the latest vetted AxeOS? It will pause mining and reboot.')) return;
+    _fwDevFlashing = true; _fwDevSetBtns(true);
+    prog.hidden = false; prog.textContent = 'Starting…';
+    try { await api('/api/firmware/flash', 'POST', { ips: [DEVICE_IP] }); }
+    catch (e) { _fwDevFlashing = false; _fwDevSetBtns(false); prog.textContent = 'Error: ' + e.message; return; }
+  }
+  pollDeviceFlash();
+}
+
+async function pollDeviceFlash() {
+  let p;
+  try { p = await api('/api/firmware/flash-progress'); } catch (e) { setTimeout(pollDeviceFlash, 1500); return; }
+  const d = (p.devices || []).find(x => x.ip === DEVICE_IP) || (p.devices || [])[0];
+  const prog = document.getElementById('fw-dev-progress');
+  if (prog && d) {
+    prog.textContent = (FW_DEV_PHASE[d.phase] || d.phase) + (d.error ? (' — ' + d.error) : '');
+    prog.className = 'fw-dev-progress fw-st-' + d.phase;
+  }
+  if (p.done || !p.active) {
+    _fwDevFlashing = false;
+    const failed = (p.devices || []).find(x => x.phase === 'failed');
+    if (prog) prog.textContent = failed ? ('Failed — ' + (failed.error || '')) : ('Updated to ' + (p.version || 'the latest version') + ' ✓');
+    setTimeout(() => { checkDeviceFirmware(); poll(); }, 1500);
+  } else {
+    setTimeout(pollDeviceFlash, 2000);
+  }
+}
+
+checkDeviceFirmware();
+setInterval(checkDeviceFirmware, 30 * 60 * 1000);
 
 poll();
 setInterval(poll, 5000);
