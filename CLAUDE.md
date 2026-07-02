@@ -1,6 +1,6 @@
 # Bitaxe Baller
 
-**v1.16.3** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network. Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Built-in LAN scanner auto-discovers new miners. Inline tooltips throughout. Single shared stylesheet and JS helper file under `static/`. The web app itself has no build step (vanilla JS, no framework) — desktop packaging is a separate PyInstaller pipeline under `build/`.
+**v1.18.0** — Flask app + browser dashboard for monitoring and tuning Bitaxe Gamma (BM1370) miners on the local network (also monitors NerdQAxe and other AxeOS-fork devices; firmware flashing is Bitaxe-only, fail-closed). Two pages: a compact scannable home view, plus a per-device detail page for tuning + pool config. Built-in LAN scanner auto-discovers new miners. Inline tooltips throughout. Single shared stylesheet and JS helper file under `static/`. The web app itself has no build step (vanilla JS, no framework) — desktop packaging is a separate PyInstaller pipeline under `build/`.
 
 > **This Flask app is the core of a 5-channel product, not the whole thing.** Don't trust version numbers in docs — verify against `git`/`gh` first (the docs have drifted before). See the persisted memory files for the full picture: `project-ecosystem-map`, `release-process`, `feedback-keep-docs-current`.
 

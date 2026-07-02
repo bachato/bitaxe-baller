@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.17.0"
+version: "1.18.0"
 
 port: 13700
 description: >-
@@ -67,6 +67,18 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
+  v1.18.0 — One-click AxeOS firmware updates + fleet block odds + stability fixes.
+  (1) Update your miners' AxeOS firmware from Baller: Pro flashes the vetted
+  www.bin + esp-miner.bin across your whole fleet in one click (sequential,
+  stop-on-failure); free updates a single miner. It's fail-closed and Bitaxe-only
+  — it won't touch a NerdQAxe or any board running non-stock firmware. (2) Each
+  per-coin fleet tile now shows your real block odds (e.g. "1 in 5,000 this year",
+  or "~N blocks/year" on easily-mined chains like eCash). (3) Baller now monitors
+  NerdQAxe and other AxeOS-fork miners alongside your Bitaxes. (4) Fixed a couple
+  of rare-but-real dashboard freezes (a chain-stats refresh and a block-found alert
+  could stall the poll loop). Recommended update for everyone.
+
+
   v1.17.0 — AxeOS firmware update alerts + an Umbrel remote-access fix.
   (1) Bitaxe Baller now flags when your miners are running out-of-date AxeOS
   firmware, with links to what's new and how to update — curated, so only
