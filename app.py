@@ -839,20 +839,44 @@ _CHAIN_FETCHERS = {
     "nmc": _fetch_nmc_stats,
 }
 
+_chain_wanted = set()   # chains any device is using — the background refresher keeps these warm
+
+
 def _chain_stats(chain_id):
-    """Cached fetch. Returns stale cache on transient failure; None if never fetched."""
-    now = time.time()
+    """NON-BLOCKING. Returns cached stats (or None if not fetched yet), and records the
+    chain as 'wanted' so the background refresher keeps it warm. It must NEVER do network
+    I/O inline: device_summary calls this while holding state_lock, so a synchronous fetch
+    here would hold the lock across a slow chain-API call and freeze every device poll AND
+    /api/devices (which builds summaries under the same lock) — the recurring 'not loading
+    data' hang. The refresh happens off-thread in _chain_stats_refresh_loop instead."""
+    _chain_wanted.add(chain_id)
     cached = _chain_stats_cache.get(chain_id)
-    if cached and (now - cached[0]) < _CHAIN_TTL_SEC:
-        return cached[1]
-    fetcher = _CHAIN_FETCHERS.get(chain_id)
-    if not fetcher:
-        return cached[1] if cached else None
-    fresh = fetcher()
-    if fresh:
-        _chain_stats_cache[chain_id] = (now, fresh)
-        return fresh
     return cached[1] if cached else None
+
+
+def _chain_stats_refresh_loop():
+    """Keep chain difficulty/price stats warm OFF the request/poll path. Wakes periodically
+    and (re)fetches only chains that are wanted and stale, so a slow or down chain API can
+    never hold state_lock. A newly-used chain's stats populate within one interval."""
+    while True:
+        try:
+            now = time.time()
+            for chain_id in list(_chain_wanted):
+                cached = _chain_stats_cache.get(chain_id)
+                if cached and (now - cached[0]) < _CHAIN_TTL_SEC:
+                    continue
+                fetcher = _CHAIN_FETCHERS.get(chain_id)
+                if not fetcher:
+                    continue
+                try:
+                    fresh = fetcher()   # network I/O — in THIS bg thread, never under a lock
+                    if fresh:
+                        _chain_stats_cache[chain_id] = (time.time(), fresh)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        time.sleep(20)
 
 def _block_probability_math(hashrate_ghs, network_diff, best_diff_value):
     """
@@ -4580,6 +4604,9 @@ def main():
     global poll_thread
     poll_thread = threading.Thread(target=poll_loop, daemon=True)
     poll_thread.start()
+
+    # Keep chain difficulty/price stats warm off the poll path (never under state_lock).
+    threading.Thread(target=_chain_stats_refresh_loop, daemon=True).start()
 
     lan_ip = detect_lan_ip()
 
