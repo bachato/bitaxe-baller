@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.18.0"
+version: "1.18.1"
 
 port: 13700
 description: >-
@@ -67,7 +67,15 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
-  v1.18.0 — One-click AxeOS firmware updates + fleet block odds + stability fixes.
+  v1.18.1 — Security hardening. The dashboard tile now sits behind your Umbrel
+  login (proxy auth enabled) — opening Bitaxe Baller from the Umbrel home screen
+  asks for your Umbrel password before exposing tuning controls; direct LAN
+  access on port 13701 is unchanged. Also rate-limits sign-in attempts on the
+  remote-access relay. No functional app changes beyond the version number —
+  the app is otherwise identical to v1.18.0's feature release: one-click AxeOS
+  firmware updates, fleet block odds, NerdQAxe monitoring, stability fixes.
+
+  Previous release: v1.18.0 — One-click AxeOS firmware updates + fleet block odds + stability fixes.
   (1) Update your miners' AxeOS firmware from Baller: Pro flashes the vetted
   www.bin + esp-miner.bin across your whole fleet in one click (sequential,
   stop-on-failure); free updates a single miner. It's fail-closed and Bitaxe-only
