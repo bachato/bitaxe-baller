@@ -13,7 +13,9 @@ import asyncio
 import contextlib
 import json
 import logging
+import threading
 import time
+from collections import deque
 from typing import Optional
 
 from pathlib import Path
@@ -102,12 +104,43 @@ def health():
     }
 
 
+# Per-IP sliding-window throttle for /login. Sync endpoints run in the
+# threadpool, so the shared map needs a real lock. Behind nginx the client
+# address is in X-Real-IP; request.client is the fallback for bare deploys.
+_login_attempts: dict[str, deque] = {}
+_login_lock = threading.Lock()
+
+
+def _login_throttled(ip: str) -> bool:
+    now = time.time()
+    cutoff = now - config.LOGIN_RATE_WINDOW_S
+    with _login_lock:
+        dq = _login_attempts.setdefault(ip, deque())
+        while dq and dq[0] <= cutoff:
+            dq.popleft()
+        if len(dq) >= config.LOGIN_RATE_MAX:
+            return True
+        dq.append(now)
+        # Bound the map: sweep idle IPs once it grows past any plausible
+        # legitimate population.
+        if len(_login_attempts) > 10_000:
+            for k in [k for k, d in _login_attempts.items() if not d or d[-1] <= cutoff]:
+                del _login_attempts[k]
+    return False
+
+
 @app.post("/login")
-def login(license_key: str = Form(...), activation_id: Optional[str] = Form(None)):
+def login(request: Request, license_key: str = Form(...), activation_id: Optional[str] = Form(None)):
     """Exchange a license key (+ optional activation_id) for a session token.
 
     Form-encoded to match the LS conventions the app already uses.
     """
+    ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+    if _login_throttled(ip):
+        return JSONResponse(
+            status_code=429,
+            content={"ok": False, "error": "Too many attempts — try again in a minute."},
+        )
     try:
         info = licensing.validate(license_key, activation_id)
     except licensing.LicenseError as e:

@@ -37,7 +37,13 @@ services:
     environment:
       APP_HOST: host.docker.internal
       APP_PORT: 13701
-      PROXY_AUTH_ADD: "false"
+      # Umbrel's proxy gates the tile URL (:13700) behind the user's
+      # Umbrel password. The dashboard has no auth of its own and every
+      # tune/pool/restart endpoint mutates state, so the primary entry
+      # point should not be wide open. Caveat: host networking means the
+      # app itself still answers directly on :13701 (and via mDNS) for
+      # anyone on the LAN — this protects the advertised URL, not the port.
+      PROXY_AUTH_ADD: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
