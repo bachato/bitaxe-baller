@@ -2898,6 +2898,28 @@ def _is_bitaxe_board(info: dict) -> bool:
     return str(info.get("boardVersion", "")).strip() in _BITAXE_BOARD_VERSIONS
 
 
+# Stock AxeOS reports a clean semantic version like "v2.14.1". Firmware FORKS running on
+# genuine Bitaxe hardware (LottoAxe OS, NerdQAxe's fork, dev / -beta / -LTS builds) brand
+# their version string differently — extra parts, suffixes, or names. The board allowlist
+# can't catch a real Bitaxe board running someone else's firmware, so we ALSO require the
+# reported version to look like stock AxeOS before ever offering an update — otherwise a
+# one-click "update" could flash stock AxeOS OVER a user's custom firmware. Fail-closed.
+_AXEOS_VERSION_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+
+def _is_stock_axeos(info: dict) -> bool:
+    ver = str((info or {}).get("version") or (info or {}).get("axeOSVersion") or "").strip()
+    return bool(_AXEOS_VERSION_RE.match(ver))
+
+
+def _fw_flashable(info: dict) -> bool:
+    """A device is eligible for our AxeOS update flow only if it's BOTH a recognized Bitaxe
+    board AND running stock AxeOS (clean version string). This is the single gate for the
+    notice, the behind-check, and the actual flash — it guards against pushing stock Bitaxe
+    firmware onto another vendor's hardware OR over a Bitaxe running a custom firmware fork."""
+    return _is_bitaxe_board(info) and _is_stock_axeos(info)
+
+
 @app.route("/api/firmware-check")
 def api_firmware_check():
     """Which tracked miners are behind the latest blessed AxeOS release. Drives the
@@ -2912,8 +2934,8 @@ def api_firmware_check():
         with state_lock:
             for s in state.values():
                 info = s.get("latest") or {}
-                if not _is_bitaxe_board(info):
-                    continue   # non-Bitaxe — never surface a firmware update for it
+                if not _fw_flashable(info):
+                    continue   # non-Bitaxe board OR non-stock firmware — never surface an update
                 total += 1
                 cur = info.get("version", "")
                 if cur and _parse_semver(cur) < latest_sem:
@@ -3115,13 +3137,15 @@ def _flash_worker(target_version, items, www_path, fw_path, from_catalog):
         for it in items:
             ip, label = it["ip"], it["label"]
             try:
-                # Catalog flashes push stock Bitaxe firmware — refuse on any board that
-                # isn't a recognized Bitaxe, even if the API was hit directly. (Manual
-                # uploads are the user's own files + responsibility, so they're exempt.)
+                # Catalog flashes push stock Bitaxe firmware — refuse unless the device is
+                # BOTH a recognized Bitaxe board AND running stock AxeOS, even if the API was
+                # hit directly. This prevents clobbering another vendor's hardware or a Bitaxe
+                # running a custom firmware fork (LottoAxe, NerdQAxe, etc.). (Manual uploads
+                # are the user's own files + explicit choice, so they're exempt.)
                 if from_catalog:
                     try:
-                        if not _is_bitaxe_board(fetch_device(ip)):
-                            _flash_set(ip, "skipped", error="not a recognized Bitaxe board — won't flash Bitaxe firmware")
+                        if not _fw_flashable(fetch_device(ip)):
+                            _flash_set(ip, "skipped", error="not a stock-AxeOS Bitaxe — won't flash Bitaxe firmware over it")
                             continue
                     except Exception:
                         pass  # unreachable now will surface on the flash attempt below
