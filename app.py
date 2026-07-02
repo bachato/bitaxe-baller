@@ -225,6 +225,7 @@ def poll_one(ip, label):
     ts = time.time()
     try:
         data = fetch_device(ip)
+        block_found_alert = None   # captured under the lock, dispatched (HTTP) AFTER it
         with state_lock:
             if ip not in state:
                 return
@@ -303,18 +304,17 @@ def poll_one(ip, label):
                 rec = _block_finds_record(ip, s["label"], data, chain_id)
                 rec["delta"] = delta  # so the UI can say "+N blocks found"
                 log_event(ip, f"🎉 BLOCK FOUND on {rec['chain_name']} (height {rec['block_height']}, diff {rec['best_diff']})")
-                # Fire as a high-priority alert too — block-found is the one
-                # event nobody wants to miss. Uses the same dispatch path as
-                # offline/temp alerts so Discord + email both ping if configured.
-                try:
-                    _alerts_dispatch(
-                        s["label"], ip, "block_found",
-                        f"🎉 BLOCK FOUND: {s['label']} on {rec['chain_name']}",
-                        f"Bitaxe {s['label']} just solved a {rec['chain_name']} block at height {rec['block_height']}. "
-                        f"Difficulty: {rec['best_diff']}. Look at your wallet — this is the lottery hit.",
-                    )
-                except Exception:
-                    pass
+                # Block-found is the one alert nobody wants to miss — but DON'T dispatch
+                # it here: _alerts_dispatch does Discord/email HTTP, and running that under
+                # state_lock means a slow or hung webhook freezes every device poll and the
+                # dashboard (/api/devices blocks on the same lock). Capture it now, fire it
+                # once the lock is released (below), same as the offline/temp alerts path.
+                block_found_alert = (
+                    s["label"], ip,
+                    f"🎉 BLOCK FOUND: {s['label']} on {rec['chain_name']}",
+                    f"Bitaxe {s['label']} just solved a {rec['chain_name']} block at height {rec['block_height']}. "
+                    f"Difficulty: {rec['best_diff']}. Look at your wallet — this is the lottery hit.",
+                )
 
             point = {
                 "t": ts,
@@ -332,6 +332,14 @@ def poll_one(ip, label):
                 "uptime": data.get("uptimeSeconds", 0),
             }
             s["history"].append(point)
+
+        # Block-found alert — dispatched OUTSIDE state_lock (does Discord/email HTTP).
+        if block_found_alert:
+            try:
+                _alerts_dispatch(block_found_alert[0], block_found_alert[1], "block_found",
+                                 block_found_alert[2], block_found_alert[3])
+            except Exception:
+                pass
 
         if was_offline:
             log_event(ip, "Device back online")
@@ -943,12 +951,18 @@ def device_summary(s):
     freq = latest.get("frequency", 0) or 0
     firmware_expected = latest.get("expectedHashrate", 0) or 0
     small_cores = latest.get("smallCoreCount", 0) or 0
+    # Multi-ASIC boards (e.g. NerdQAxe++ = 4× BM1370) report per-chip smallCoreCount
+    # but whole-board hashRate. Scale the computed expectation by asicCount so a 4-ASIC
+    # board isn't shown at ~400% of "expected" (which also poisons fleet-outlier stats).
+    # Gammas report asicCount 1 (or omit it) → no change. firmware_expected, when present,
+    # is already whole-board so it's used as-is.
+    asic_count = latest.get("asicCount", 1) or 1
     if firmware_expected:
         expected_ghs = firmware_expected
     elif small_cores and freq:
-        expected_ghs = (small_cores * freq) / 1000
+        expected_ghs = (small_cores * freq) / 1000 * asic_count
     else:
-        expected_ghs = freq * 2.04 if freq > 0 else 0
+        expected_ghs = (freq * 2.04 * asic_count) if freq > 0 else 0
 
     session_secs = max(1, time.time() - s["session_start"])
     shares_per_min = (shares_delta / (session_secs / 60)) if session_secs >= 60 else 0
