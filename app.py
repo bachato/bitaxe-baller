@@ -1673,9 +1673,23 @@ def _autotune_summary(s: dict) -> dict:
 
 # ---------- Routes ----------
 
+def _request_is_from_host() -> bool:
+    """True when the request comes from a browser on the same machine as the
+    app — the only case where opening Finder/Explorer is useful to the person
+    clicking. Loopback covers the desktop app (it opens localhost); matching
+    the LAN IP covers browsing http://bitaxe-baller.local from the host
+    itself. Relay-forwarded requests also arrive via loopback, so the relay
+    client marks them with X-Baller-Relay and we exclude those first."""
+    if request.headers.get("X-Baller-Relay"):
+        return False
+    addr = request.remote_addr or ""
+    return addr in ("127.0.0.1", "::1") or addr == detect_lan_ip()
+
+
 @app.route("/")
 def index():
-    return render_template("dashboard.html", presets=PRESETS, bounds=BOUNDS)
+    return render_template("dashboard.html", presets=PRESETS, bounds=BOUNDS,
+                           show_logs_link=_request_is_from_host())
 
 
 @app.route("/healthz")
@@ -1693,7 +1707,8 @@ def device_detail(ip):
     with state_lock:
         if ip not in state:
             return ("Device not found. <a href='/'>Back to overview</a>", 404)
-    return render_template("device.html", ip=ip, presets=PRESETS, bounds=BOUNDS)
+    return render_template("device.html", ip=ip, presets=PRESETS, bounds=BOUNDS,
+                           show_logs_link=_request_is_from_host())
 
 
 # Fleet outlier detection — informational rec for devices materially
@@ -1918,6 +1933,32 @@ def api_device_history(ip):
 @app.route("/api/config", methods=["GET"])
 def api_config_get():
     return jsonify(load_config())
+
+
+@app.route("/api/logs/open", methods=["POST"])
+def api_logs_open():
+    """Open the CSV logs folder in the host OS file manager (Finder /
+    Explorer / xdg-open). Only honored for requests from the host machine
+    itself — a Finder window popping on the host is useless (and confusing)
+    to a phone or remote browser, so those get the path back instead. The
+    UI also hides the link for non-host sessions; this is the backstop."""
+    if not _request_is_from_host():
+        return jsonify({"ok": False, "path": LOG_DIR,
+                        "message": f"Remote session — the logs folder lives on "
+                                   f"the machine running Bitaxe Baller, at {LOG_DIR}"})
+    import subprocess
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", LOG_DIR])
+        elif sys.platform == "win32":
+            os.startfile(LOG_DIR)
+        else:
+            subprocess.Popen(["xdg-open", LOG_DIR])
+        return jsonify({"ok": True, "path": LOG_DIR})
+    except Exception as e:
+        return jsonify({"ok": False, "path": LOG_DIR,
+                        "message": f"No file manager available — logs live at {LOG_DIR}",
+                        "error": f"{type(e).__name__}: {e}"})
 
 
 # ---------- History (Pro: persistent SQLite) ----------

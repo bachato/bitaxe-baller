@@ -342,6 +342,7 @@
   }
   .toast.error { border-left-color: var(--crit); }
   .toast.info { border-left-color: var(--info); }
+  .toast.warn { border-left-color: var(--warn); }
   @keyframes slideIn {
     from { transform: translateX(100%); opacity: 0; }
     to { transform: translateX(0); opacity: 1; }
@@ -1389,6 +1390,17 @@
     letter-spacing: 0.14em;
     flex-shrink: 0;
   }
+
+  /* Footer utility link (e.g. "logs folder") — same treatment as credits links,
+     but inherits the footer's uppercase styling. */
+  footer .footer-link {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--accent-dim);
+    padding-bottom: 1px;
+    cursor: pointer;
+  }
+  footer .footer-link:hover { border-bottom-color: var(--accent); }
 
   /* Footer credit — center cell, themed heart with subtle pulse. */
   footer .credits {
