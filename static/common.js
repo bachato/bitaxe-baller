@@ -324,6 +324,27 @@ async function api(path, method = 'GET', body = null) {
   return data;
 }
 
+// ----- logs folder link (footer, both pages) -----
+// Opens the CSV telemetry folder in the host's file manager. The link only
+// renders for browsers on the host machine (server-side Jinja flag); when
+// opening still isn't possible the server sends back a display-ready
+// message with the path so the user can find the folder themselves.
+document.addEventListener('click', async (e) => {
+  const link = e.target.closest('#open-logs-link');
+  if (!link) return;
+  e.preventDefault();
+  try {
+    const res = await api('/api/logs/open', 'POST', {});
+    if (res.ok) {
+      toast(`Logs folder opened: ${res.path}`, 'info');
+    } else {
+      toast(res.message || `Logs live at ${res.path}`, 'warn', 8000);
+    }
+  } catch (err) {
+    toast('Could not open logs folder: ' + err.message, 'error');
+  }
+});
+
 // ----- formatters -----
 function fmtUptime(secs) {
   const d = Math.floor(secs / 86400);

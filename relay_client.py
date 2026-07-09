@@ -298,7 +298,11 @@ def _dispatch_http(method: str, path: str, body: Any, app_port: int) -> tuple[in
     comes from a remote client via the relay rather than from local fetch().
     """
     url = f"http://127.0.0.1:{app_port}{path}"
-    kwargs: dict = {"timeout": _DISPATCH_TIMEOUT_S}
+    # Mark relay-forwarded requests: they arrive via loopback, but the person
+    # driving them is remote, so host-only features (e.g. "open logs folder
+    # in Finder") must not treat them as local.
+    kwargs: dict = {"timeout": _DISPATCH_TIMEOUT_S,
+                    "headers": {"X-Baller-Relay": "1"}}
     if body is not None and method in {"POST", "PATCH"}:
         kwargs["json"] = body
     r = requests.request(method, url, **kwargs)
