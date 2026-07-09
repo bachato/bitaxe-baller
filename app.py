@@ -161,10 +161,13 @@ def save_config(cfg):
         json.dump(cfg, f, indent=2)
 
 
-def init_device_state(ip, label, chain_override=None):
+def init_device_state(ip, label, chain_override=None, device_type=None):
     return {
         "ip": ip,
         "label": label,
+        # "axeos" (Bitaxe / NerdQAxe / other ESP-Miner forks — full support) or
+        # "braiins" (Braiins OS mini miners like the BMM-101 — monitor-only).
+        "device_type": device_type or "axeos",
         "chain_override": (chain_override or None),  # manual chain pin; None = auto-detect
         "history": deque(maxlen=HISTORY_POINTS),
         "latest": None,
@@ -189,10 +192,129 @@ def init_device_state(ip, label, chain_override=None):
     }
 
 
-def fetch_device(ip, timeout=3):
-    r = requests.get(f"http://{ip}/api/system/info", timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+# ---------- Braiins OS driver (BMM-101 etc.) — monitor-only ----------
+#
+# Braiins mini miners (BMM-101) run Braiins OS, not AxeOS: the web UI is an
+# SPA that answers 200 HTML for ANY path (including /api/system/info), and the
+# real machine interface is the classic CGMiner-compatible TCP API on :4028
+# ("BOSer"). We poll it with one compound command and translate the response
+# into the AxeOS /api/system/info field shape so the rest of the app (poll
+# loop, CSV, charts, summary, block-found detection) works unchanged.
+# Tuning / pool config / restart / firmware are NOT supported for this type —
+# the mutating endpoints reject it and the UI hides those controls.
+
+BRAIINS_API_PORT = 4028
+
+
+def _braiins_cmd(ip, command, timeout=3):
+    """One CGMiner-API request/response over TCP. Responses are a single JSON
+    object, sometimes NUL-terminated."""
+    with socket.create_connection((ip, BRAIINS_API_PORT), timeout=timeout) as sk:
+        sk.settimeout(timeout)
+        sk.sendall(json.dumps({"command": command}).encode())
+        buf = b""
+        while True:
+            chunk = sk.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+    return json.loads(buf.rstrip(b"\x00").decode(errors="replace"))
+
+
+def _braiins_section(resp, cmd, section):
+    """Pull the first record of a section from a compound-command response."""
+    try:
+        return resp[cmd][0][section][0]
+    except (KeyError, IndexError, TypeError):
+        return {}
+
+
+def fetch_braiins(ip, timeout=3):
+    """Poll a Braiins OS device and return an AxeOS-shaped info dict."""
+    resp = _braiins_cmd(ip, "summary+temps+fans+pools+tunerstatus+devs+version", timeout)
+    summary = _braiins_section(resp, "summary", "SUMMARY")
+    temps = _braiins_section(resp, "temps", "TEMPS")
+    fans = _braiins_section(resp, "fans", "FANS")
+    pools = _braiins_section(resp, "pools", "POOLS")
+    tuner = _braiins_section(resp, "tunerstatus", "TUNERSTATUS")
+    devs = _braiins_section(resp, "devs", "DEVS")
+    ver = _braiins_section(resp, "version", "VERSION")
+
+    # stratum+tcp://host:port -> (host, port)
+    pool_url = pools.get("URL", "") or ""
+    stratum_host, stratum_port = "", 0
+    m = re.match(r"^(?:stratum\+tcp://)?([^:/]+)(?::(\d+))?", pool_url)
+    if m:
+        stratum_host = m.group(1)
+        stratum_port = int(m.group(2) or 0)
+
+    best = summary.get("Best Share", 0) or 0
+    return {
+        "deviceType": "braiins",
+        "ASICModel": "BMM-101",
+        "version": ver.get("BOSer", "") or "BOSer",
+        "hostname": "",
+        "macAddr": "",  # not exposed by the CGMiner API; leaderboard submit skips MAC-less devices
+        "hashRate": (summary.get("MHS 1m", 0) or summary.get("MHS 5m", 0) or 0) / 1000.0,  # GH/s
+        "expectedHashrate": (devs.get("Nominal MHS", 0) or 0) / 1000.0,
+        "temp": temps.get("Chip", 0) or 0,
+        "vrTemp": 0,  # no VR sensor exposed; Board temp exists but isn't a VR reading — don't fake it
+        "power": tuner.get("ApproximateMinerPowerConsumption", 0) or 0,
+        "voltage": 0,
+        "coreVoltage": 0,
+        "frequency": 0,
+        "fanspeed": fans.get("Speed", 0) or 0,
+        "fanrpm": fans.get("RPM", 0) or 0,
+        "autofanspeed": 1,  # BOSer manages its own fan curve
+        "sharesAccepted": summary.get("Accepted", 0) or 0,
+        "sharesRejected": summary.get("Rejected", 0) or 0,
+        "bestDiff": str(best),          # BOSer only tracks since-restart best
+        "bestSessionDiff": str(best),
+        "uptimeSeconds": summary.get("Elapsed", 0) or 0,
+        "blockFound": summary.get("Found Blocks", 0) or 0,
+        "stratumURL": stratum_host,
+        "stratumPort": stratum_port,
+        "stratumUser": pools.get("User", "") or "",
+    }
+
+
+def _monitor_only_error(ip):
+    """Returns a (response, status) rejection when `ip` is a monitor-only
+    device (Braiins OS), else None. Used as a guard at the top of every
+    endpoint that mutates device settings via the AxeOS HTTP API."""
+    with state_lock:
+        dtype = (state.get(ip) or {}).get("device_type", "axeos")
+    if dtype == "braiins":
+        return jsonify({
+            "error": "This is a Braiins OS device — Bitaxe Baller monitors it, but tuning, "
+                     "pool changes, restarts and firmware stay in its own web UI."
+        }), 400
+    return None
+
+
+def fetch_device(ip, timeout=3, device_type=None):
+    """Fetch live status for a device. Known Braiins devices go straight to the
+    CGMiner API; everything else tries AxeOS HTTP first, then falls back to a
+    Braiins sniff when the HTTP answer isn't a miner (covers first-time adds,
+    where the type isn't known yet)."""
+    if device_type == "braiins":
+        return fetch_braiins(ip, timeout)
+    try:
+        r = requests.get(f"http://{ip}/api/system/info", timeout=timeout)
+        r.raise_for_status()
+        d = r.json()
+        if "hashRate" not in d and "ASICModel" not in d:
+            raise ValueError("responds over HTTP but not with AxeOS system info")
+        return d
+    except (ValueError, requests.exceptions.RequestException):
+        if device_type is None:
+            # Unknown type — maybe it's a Braiins OS device (SPA answers 200
+            # HTML on every path, so the JSON parse above throws).
+            try:
+                return fetch_braiins(ip, timeout)
+            except Exception:
+                pass
+        raise
 
 
 def patch_device(ip, settings, timeout=5):
@@ -221,10 +343,10 @@ def log_event(ip, msg):
             })
 
 
-def poll_one(ip, label):
+def poll_one(ip, label, device_type=None):
     ts = time.time()
     try:
-        data = fetch_device(ip)
+        data = fetch_device(ip, device_type=device_type)
         block_found_alert = None   # captured under the lock, dispatched (HTTP) AFTER it
         with state_lock:
             if ip not in state:
@@ -391,7 +513,7 @@ def poll_loop():
         if devices:
             t0 = time.time()
             with ThreadPoolExecutor(max_workers=max(4, len(devices))) as ex:
-                futures = [ex.submit(poll_one, d["ip"], d["label"]) for d in devices]
+                futures = [ex.submit(poll_one, d["ip"], d["label"], d.get("type")) for d in devices]
                 for f in futures:
                     try:
                         f.result(timeout=10)
@@ -453,6 +575,12 @@ def compute_recommendations(s, hist, avgs, hw_rate_pct, shares_delta, j_per_th, 
     """Rule-based suggestions tied to current telemetry. Returns up to 3 recs,
     most-severe first. Each rec has an optional `action` the UI can fire one-click."""
     if not s["latest"]:
+        return []
+
+    # Braiins OS devices are monitor-only: BOSer runs its own autotuner and we
+    # can't PATCH frequency/voltage/fan, so tuning advice would be noise (and
+    # its one-click actions would 400). Offline severity is handled elsewhere.
+    if s.get("device_type") == "braiins":
         return []
 
     age_s = time.time() - s["session_start"]
@@ -939,6 +1067,7 @@ def device_summary(s):
             "label": s["label"],
             "online": s["online"],
             "lastError": s["last_error"],
+            "deviceType": s.get("device_type", "axeos"),
             "history": [],
             "events": list(s["events"]),
             "recommendations": [],
@@ -1006,6 +1135,7 @@ def device_summary(s):
         "label": s["label"],
         "online": s["online"],
         "lastError": s["last_error"],
+        "deviceType": s.get("device_type", "axeos"),
         "model": latest.get("ASICModel", "unknown"),
         "version": latest.get("version", ""),
         "hostname": latest.get("hostname", ""),
@@ -3383,6 +3513,9 @@ def api_device_identify():
     ip = (request.get_json(force=True) or {}).get("ip", "").strip()
     if not ip:
         return jsonify({"error": "ip required"}), 400
+    blocked = _monitor_only_error(ip)
+    if blocked:
+        return blocked
     try:
         requests.post(f"http://{ip}/api/system/identify", timeout=5)
     except Exception as e:
@@ -3651,6 +3784,22 @@ def api_scan():
         if f"{base}.{i}" != lan_ip and f"{base}.{i}" not in existing
     ]
 
+    def probe_braiins(ip):
+        # Braiins OS (BMM-101 etc.) speaks the CGMiner TCP API on :4028, not
+        # AxeOS HTTP. Only reached when the HTTP probe found nothing, so the
+        # common case (empty IP) already failed fast.
+        try:
+            d = fetch_braiins(ip, timeout=1.5)
+            return {
+                "ip": ip,
+                "hostname": d.get("hostname", ""),
+                "model": d.get("ASICModel", ""),
+                "version": d.get("version", ""),
+                "hashRate": round(d.get("hashRate", 0), 0),
+            }
+        except Exception:
+            return None
+
     def probe(ip):
         try:
             r = requests.get(
@@ -3671,8 +3820,18 @@ def api_scan():
                 "version": d.get("version", ""),
                 "hashRate": round(d.get("hashRate", 0), 0),
             }
-        except Exception:
+        except ValueError:
+            # HTTP 200 but not JSON — a Braiins OS SPA answers every path
+            # with its HTML shell, so this is exactly the BMM fingerprint.
+            return probe_braiins(ip)
+        except requests.exceptions.Timeout:
+            # No HTTP answer at all — almost certainly an empty IP. Don't
+            # spend another connect-timeout probing :4028 on it.
             return None
+        except Exception:
+            # Host answered but not usefully (port 80 closed/refused, weird
+            # server) — cheap to check for a Braiins CGMiner API before giving up.
+            return probe_braiins(ip)
 
     found = []
     with ThreadPoolExecutor(max_workers=64) as ex:
@@ -3743,14 +3902,20 @@ def api_device_add():
         if rebound_label and not (body.get("label") or "").strip():
             label = rebound_label
 
-        cfg["devices"].append({"ip": ip, "label": label})
+        device_type = info.get("deviceType") or "axeos"
+        entry = {"ip": ip, "label": label}
+        if device_type != "axeos":
+            entry["type"] = device_type
+        cfg["devices"].append(entry)
         save_config(cfg)
 
     with state_lock:
-        state[ip] = init_device_state(ip, label)
+        state[ip] = init_device_state(ip, label, device_type=device_type)
 
     if rebound_from:
         log_event(ip, f"Device re-bound from {rebound_from} (same MAC {new_mac})")
+    elif device_type == "braiins":
+        log_event(ip, f"Device added (model: {info.get('ASICModel', '?')}, fw: {info.get('version', '?')}) — Braiins OS, monitor-only")
     else:
         log_event(ip, f"Device added (model: {info.get('ASICModel', '?')}, fw: {info.get('version', '?')})")
     return jsonify({
@@ -3851,6 +4016,9 @@ def api_device_tune():
     ip = body.get("ip")
     if not ip:
         return jsonify({"error": "IP required"}), 400
+    blocked = _monitor_only_error(ip)
+    if blocked:
+        return blocked
 
     settings = {}
     for key in ("frequency", "coreVoltage", "fanspeed", "autofanspeed"):
@@ -3897,6 +4065,9 @@ def api_device_preset():
     name = body.get("preset")
     if not ip or name not in PRESETS:
         return jsonify({"error": "Bad preset"}), 400
+    blocked = _monitor_only_error(ip)
+    if blocked:
+        return blocked
     p = PRESETS[name]
     settings = {"frequency": p["frequency"], "coreVoltage": p["coreVoltage"]}
     try:
@@ -4049,6 +4220,9 @@ def api_autotune_start():
     ip = body.get("ip")
     if not ip:
         return jsonify({"error": "IP required"}), 400
+    blocked = _monitor_only_error(ip)
+    if blocked:
+        return blocked
     with state_lock:
         if ip not in state:
             return jsonify({"error": "Device not tracked"}), 404
@@ -4220,6 +4394,9 @@ def api_device_restart():
     ip = body.get("ip")
     if not ip:
         return jsonify({"error": "IP required"}), 400
+    blocked = _monitor_only_error(ip)
+    if blocked:
+        return blocked
     try:
         restart_device(ip)
     except Exception as e:
@@ -4297,6 +4474,9 @@ def api_device_pool():
     ip = body.get("ip")
     if not ip:
         return jsonify({"error": "IP required"}), 400
+    blocked = _monitor_only_error(ip)
+    if blocked:
+        return blocked
 
     settings = {}
     for key in POOL_FIELDS:
@@ -4640,7 +4820,7 @@ def main():
     cfg = load_config()
     with state_lock:
         for d in cfg.get("devices", []):
-            state[d["ip"]] = init_device_state(d["ip"], d["label"], d.get("chain"))
+            state[d["ip"]] = init_device_state(d["ip"], d["label"], d.get("chain"), d.get("type"))
 
     global poll_thread
     poll_thread = threading.Thread(target=poll_loop, daemon=True)
