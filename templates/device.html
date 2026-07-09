@@ -509,6 +509,9 @@ function renderDetail(d) {
   }
 
   const m = d.metrics, e = d.efficiency, hw = d.hwErrors, r = d.rolling, sh = d.shares || {};
+  // Braiins OS devices (BMM-101) are monitor-only: no AxeOS tune/pool/restart,
+  // and no frequency/voltage/VR-temp telemetry — BOSer manages its own tuning.
+  const isBraiins = d.deviceType === 'braiins';
 
   return `
     <div class="detail-hero">
@@ -533,7 +536,7 @@ function renderDetail(d) {
         </span>
       </div>
       <div class="actions">
-        <button onclick="restartDevice()" data-tip="Send a restart command to the device. Comes back in ~30 seconds.">restart</button>
+        ${isBraiins ? '' : `<button onclick="restartDevice()" data-tip="Send a restart command to the device. Comes back in ~30 seconds.">restart</button>`}
         <button onclick="resetSession()" data-tip="Clear rolling averages and HW-error baseline WITHOUT changing settings. Use before measuring a new tuning.">reset benchmark</button>
         <button class="danger" onclick="removeDevice()" data-tip="Remove this device from the dashboard. Does NOT touch the device itself — it just stops being monitored.">remove</button>
       </div>
@@ -548,11 +551,18 @@ function renderDetail(d) {
       <h2>live metrics</h2>
       <div class="grid">
         <div class="stat" data-tip="Live hashrate this poll (instantaneous, noisy). Trust the rolling averages below for actual performance comparison."><div class="l">hashrate</div><div class="v good">${fmtHashrate(m.hashRate, 1)}<span class="u">${hashrateUnitLabel()}</span></div></div>
-        <div class="stat" data-tip="Currently applied ASIC clock frequency. Set in the tune section below."><div class="l">frequency</div><div class="v">${m.frequency}<span class="u">MHz</span></div></div>
+        ${isBraiins
+          ? `<div class="stat" data-tip="Braiins OS runs its own autotuner and doesn't expose clock frequency over its API."><div class="l">frequency</div><div class="v">—</div></div>`
+          : `<div class="stat" data-tip="Currently applied ASIC clock frequency. Set in the tune section below."><div class="l">frequency</div><div class="v">${m.frequency}<span class="u">MHz</span></div></div>`}
         <div class="stat" data-tip="ASIC chip temperature. Green <60°C (140°F), yellow 60–65°C (140–149°F), red >65°C (149°F)."><div class="l">asic temp</div><div class="v ${tempClass(m.temp, true)}">${fmtTemp(m.temp)}<span class="u">${tempUnitLabel()}</span></div></div>
-        <div class="stat" data-tip="Voltage Regulator temperature — the part that fails first on overclocked boards. Watch this more closely than ASIC temp. Green <55°C (131°F), yellow 55–65°C (131–149°F), red >65°C (149°F)."><div class="l">vr temp</div><div class="v ${tempClass(m.vrTemp, false)}">${fmtTemp(m.vrTemp)}<span class="u">${tempUnitLabel()}</span></div></div>
-        <div class="stat" data-tip="Requested core voltage. The chip delivers approximately this much; see 'measured' for actual."><div class="l">core voltage</div><div class="v">${m.coreVoltage}<span class="u">mV req</span></div></div>
-        <div class="stat" data-tip="Actual voltage measured at the chip. Should be very close to requested if the VR is healthy."><div class="l">measured</div><div class="v info">${m.voltage}<span class="u">mV</span></div></div>
+        ${isBraiins
+          ? `<div class="stat" data-tip="Braiins OS doesn't expose a VR temperature reading over its API."><div class="l">vr temp</div><div class="v">—</div></div>`
+          : `<div class="stat" data-tip="Voltage Regulator temperature — the part that fails first on overclocked boards. Watch this more closely than ASIC temp. Green <55°C (131°F), yellow 55–65°C (131–149°F), red >65°C (149°F)."><div class="l">vr temp</div><div class="v ${tempClass(m.vrTemp, false)}">${fmtTemp(m.vrTemp)}<span class="u">${tempUnitLabel()}</span></div></div>`}
+        ${isBraiins
+          ? `<div class="stat" data-tip="Braiins OS doesn't expose core voltage over its API."><div class="l">core voltage</div><div class="v">—</div></div>
+             <div class="stat" data-tip="Braiins OS doesn't expose measured voltage over its API."><div class="l">measured</div><div class="v">—</div></div>`
+          : `<div class="stat" data-tip="Requested core voltage. The chip delivers approximately this much; see 'measured' for actual."><div class="l">core voltage</div><div class="v">${m.coreVoltage}<span class="u">mV req</span></div></div>
+             <div class="stat" data-tip="Actual voltage measured at the chip. Should be very close to requested if the VR is healthy."><div class="l">measured</div><div class="v info">${m.voltage}<span class="u">mV</span></div></div>`}
         <div class="stat" data-tip="Power as reported by the chip. Wall draw is ~5–10% higher due to PSU losses."><div class="l">power draw</div><div class="v">${m.power.toFixed(2)}<span class="u">W</span></div></div>
         <div class="stat" data-tip="Joules per terahash. Lower is more efficient. Green <16, yellow 19–22, red >22."><div class="l">efficiency</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div></div>
       </div>
@@ -590,6 +600,15 @@ function renderDetail(d) {
 
     ${sharesFeedPanel(d)}
 
+    ${isBraiins ? `
+    <div class="detail-section">
+      <h2>tune & control</h2>
+      <div class="hint" style="font-size: 12px; line-height: 1.6;">
+        This is a <strong>Braiins OS</strong> miner — Bitaxe Baller monitors it (hashrate, temps, shares, best diff, uptime, block finds) but doesn't drive it: BOSer runs its own autotuner, and tuning, pool config, restarts and firmware all live in its own interface.
+        <a href="http://${d.ip}" target="_blank" rel="noopener" data-tip="Opens the miner's built-in Braiins OS web UI in a new tab.">Open the Braiins OS UI →</a>
+      </div>
+    </div>
+    ` : `
     <div class="detail-section">
       <h2>tune & control</h2>
       ${tunePanel(d)}
@@ -608,6 +627,7 @@ function renderDetail(d) {
       <h2>pool / stratum config</h2>
       ${poolForm(d)}
     </div>
+    `}
 
     <div class="detail-section">
       <h2>recent events</h2>

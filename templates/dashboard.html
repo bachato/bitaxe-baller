@@ -357,15 +357,21 @@ function renderCompactDevice(d) {
         </div>
         <div class="compact-hero">
           <div class="hash-big" data-tip="Live hashrate as reported by the device this poll. Bitaxe firmware returns instantaneous hashrate which is noisy — the 15m avg below is what to trust when comparing tuning settings.">${fmtHashrate(m.hashRate, 1)}<span class="u">${hashrateUnitLabel()}</span></div>
-          <div class="hash-sub" data-tip="Currently applied frequency / core voltage. Change them on the detail page.">15m avg <b>${fmtHashrate(r['15m'], 1)}</b> · ${m.frequency}MHz / ${m.coreVoltage}mV</div>
+          ${d.deviceType === 'braiins'
+            ? `<div class="hash-sub" data-tip="Braiins OS device — BOSer autotunes itself; frequency/voltage aren't exposed. Bitaxe Baller monitors it.">15m avg <b>${fmtHashrate(r['15m'], 1)}</b> · Braiins OS</div>`
+            : `<div class="hash-sub" data-tip="Currently applied frequency / core voltage. Change them on the detail page.">15m avg <b>${fmtHashrate(r['15m'], 1)}</b> · ${m.frequency}MHz / ${m.coreVoltage}mV</div>`}
         </div>
         <div class="compact-stats">
           <div class="s" data-tip="ASIC chip temperature. Green <60°C (140°F), yellow 60–65°C (140–149°F), red >65°C (149°F). Sustained operation over 65°C accelerates silicon degradation.">
             <div class="l">asic</div><div class="v ${tempClass(m.temp, true)}">${fmtTemp(m.temp)}<span class="u">${tempUnitLabel()}</span></div>
           </div>
-          <div class="s" data-tip="Voltage Regulator temperature. THIS is the part that kills boards — watch it more carefully than ASIC. Green <55°C (131°F), yellow 55–65°C (131–149°F), red >65°C (149°F).">
+          ${d.deviceType === 'braiins'
+            ? `<div class="s" data-tip="Braiins OS doesn't expose a VR temperature reading over its API.">
+            <div class="l">vr</div><div class="v">—</div>
+          </div>`
+            : `<div class="s" data-tip="Voltage Regulator temperature. THIS is the part that kills boards — watch it more carefully than ASIC. Green <55°C (131°F), yellow 55–65°C (131–149°F), red >65°C (149°F).">
             <div class="l">vr</div><div class="v ${tempClass(m.vrTemp, false)}">${fmtTemp(m.vrTemp)}<span class="u">${tempUnitLabel()}</span></div>
-          </div>
+          </div>`}
           <div class="s" data-tip="Joules per terahash — power efficiency. Lower is better. Stock Gamma is around 17 J/TH; below 16 is excellent.">
             <div class="l">eff</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div>
           </div>
