@@ -23,7 +23,7 @@ category: bitcoin
 # manifest fixes) can bump the patch component independently — the image
 # is pinned by digest, so the underlying app code stays the same. Next
 # aligned release across all platforms resets this.
-version: "1.18.1"
+version: "1.19.0"
 
 port: 13700
 description: >-
@@ -67,6 +67,17 @@ gallery:
   - https://bitaxeballer.com/img/screenshots/scan.jpg
 
 releaseNotes: >-
+  v1.19.0 — Braiins mini-miner monitoring + one-click log access. (1) Baller now
+  monitors Braiins OS mini miners (BMM 101) alongside your Bitaxes and NerdQAxes —
+  hashrate, chip temp, shares, best-share difficulty, uptime, and block finds, all
+  logged to CSV. It's monitor-only: because Braiins OS runs its own autotuner,
+  tuning/pool/firmware stay in the miner's own interface. Auto-discovered by the LAN
+  scanner. (2) A "logs folder" link in the footer opens the CSV telemetry folder in
+  your file manager (on the machine running Baller). (3) Fairer leaderboard prizes —
+  one per person per model, so a multi-miner owner's best board wins and the other
+  top-5 slots roll down to other people.
+
+
   v1.18.1 — Security hardening. The dashboard tile now sits behind your Umbrel
   login (proxy auth enabled) — opening Bitaxe Baller from the Umbrel home screen
   asks for your Umbrel password before exposing tuning controls; direct LAN
