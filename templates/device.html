@@ -87,7 +87,7 @@
       <canvas class="chart-history-h"></canvas>
     </div>
     <div class="chart-wrap" data-tip="Asic and VR temperatures over the selected window. Sustained VR creep is the most reliable early-warning of board degradation.">
-      <div class="chart-label"><span>temps · long-term</span><span class="legend"><span class="a">asic</span><span class="v">vr</span></span></div>
+      <div class="chart-label"><span>temps · long-term</span><span class="legend"><span class="a">asic</span><span class="v vr-legend">vr</span></span></div>
       <canvas class="chart-history-t"></canvas>
     </div>
     <div class="chart-wrap" data-tip="Joules per terahash over time. Trending up = efficiency is degrading, which can mean dust buildup, ambient temperature creep, or settings that need attention.">
@@ -549,6 +549,7 @@ function renderDetail(d) {
 
     <div class="detail-section">
       <h2>live metrics</h2>
+      ${isBraiins ? `<div class="hint" style="margin: -4px 0 12px;">Braiins OS exposes a limited metric set over its API. Fields it doesn't report — frequency, core voltage, VR temp — show as <strong>—</strong>. Power and efficiency are approximate values from BOSer's own tuner.</div>` : ''}
       <div class="grid">
         <div class="stat" data-tip="Live hashrate this poll (instantaneous, noisy). Trust the rolling averages below for actual performance comparison."><div class="l">hashrate</div><div class="v good">${fmtHashrate(m.hashRate, 1)}<span class="u">${hashrateUnitLabel()}</span></div></div>
         ${isBraiins
@@ -564,7 +565,9 @@ function renderDetail(d) {
           : `<div class="stat" data-tip="Requested core voltage. The chip delivers approximately this much; see 'measured' for actual."><div class="l">core voltage</div><div class="v">${m.coreVoltage}<span class="u">mV req</span></div></div>
              <div class="stat" data-tip="Actual voltage measured at the chip. Should be very close to requested if the VR is healthy."><div class="l">measured</div><div class="v info">${m.voltage}<span class="u">mV</span></div></div>`}
         <div class="stat" data-tip="Power as reported by the chip. Wall draw is ~5–10% higher due to PSU losses."><div class="l">power draw</div><div class="v">${m.power.toFixed(2)}<span class="u">W</span></div></div>
-        <div class="stat" data-tip="Joules per terahash. Lower is more efficient. Green <16, yellow 19–22, red >22."><div class="l">efficiency</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div></div>
+        ${isBraiins
+          ? `<div class="stat" data-tip="Approximate efficiency from BOSer's reported power draw. Braiins mini-miners run different silicon than Bitaxe, so this isn't color-graded against Bitaxe thresholds."><div class="l">efficiency</div><div class="v info">${e.jPerTh}<span class="u">J/TH</span></div></div>`
+          : `<div class="stat" data-tip="Joules per terahash. Lower is more efficient. Green <16, yellow 19–22, red >22."><div class="l">efficiency</div><div class="v ${effClass(e.jPerTh)}">${e.jPerTh}<span class="u">J/TH</span></div></div>`}
       </div>
 
       <div class="rolling" data-tip="Rolling hashrate averages over different windows. The 15m average is the standard for comparing tuning settings — give a new setting at least 15 minutes before deciding it's better or worse.">
@@ -583,7 +586,7 @@ function renderDetail(d) {
 
       <div class="row" data-tip="Percentage of submitted work the pool rejected as invalid. Under 0.1% is great, 0.1–0.5% is OK, above 0.5% means the chip is unstable at the current settings — back off voltage or frequency."><span class="k">hw error rate</span><span class="v ${hwErrClass(hw.ratePct)}">${hw.ratePct}% (${hw.hwErrors}/${hw.shares + hw.hwErrors})</span></div>
       <div class="row" data-tip="Current target difficulty the pool is asking for. The pool auto-adjusts this based on your hashrate so you submit shares at a sensible cadence (~every few seconds)."><span class="k">pool difficulty</span><span class="v">${formatDiff(m.poolDifficulty)} · lifetime ${formatNum(sh.lifetimeAccepted)} accepted</span></div>
-      <div class="row" data-tip="Expected hashrate at this frequency, taken directly from the firmware's reported value (smallCoreCount × frequency / 1000). Matches AxeOS exactly. Below 85% suggests the chip is throttling on errors or this particular silicon is on the lower end of the lottery."><span class="k">expected</span><span class="v">${fmtHashrate(e.expectedGhs, 1)} ${hashrateUnitLabel()} · actual ${e.actualPctOfExpected}%</span></div>
+      <div class="row" data-tip="${isBraiins ? 'Nominal hashrate BOSer reports for this miner; \'actual\' compares your live rate against it.' : 'Expected hashrate at this frequency, taken directly from the firmware\'s reported value (smallCoreCount × frequency / 1000). Matches AxeOS exactly. Below 85% suggests the chip is throttling on errors or this particular silicon is on the lower end of the lottery.'}"><span class="k">expected</span><span class="v">${fmtHashrate(e.expectedGhs, 1)} ${hashrateUnitLabel()} · actual ${e.actualPctOfExpected}%</span></div>
       <div class="row" data-tip="Current fan RPM and duty cycle. 'auto' means firmware controls it based on temperature."><span class="k">fan</span><span class="v">${m.fanSpeed} RPM · ${m.fanPercent}%${m.autofanspeed ? ' · auto' : ''}</span></div>
 
       <div class="chart-wrap" style="margin-top: 14px">
@@ -591,7 +594,7 @@ function renderDetail(d) {
         <canvas class="chart-h" data-ip="${d.ip}"></canvas>
       </div>
       <div class="chart-wrap">
-        <div class="chart-label"><span>temps · last 15m</span><span class="legend"><span class="a">asic</span><span class="v">vr</span></span></div>
+        <div class="chart-label"><span>temps · last 15m</span><span class="legend"><span class="a">asic</span>${isBraiins ? '' : '<span class="v">vr</span>'}</span></div>
         <canvas class="chart-t" data-ip="${d.ip}"></canvas>
       </div>
     </div>
@@ -989,6 +992,10 @@ async function poll() {
       if (ts) ts.textContent = new Date().toLocaleTimeString() + ' · paused (editing form)';
       return;
     }
+    // Braiins OS devices don't report VR temp — hide the "vr" label on the
+    // static long-term chart legend (the live-metrics legend is already
+    // conditional inside renderDetail). CSS handles the actual hiding.
+    document.body.classList.toggle('dev-braiins', d.deviceType === 'braiins');
     const root = document.getElementById('detail-root');
     root.innerHTML = renderDetail(d);
     if (d.online && d.history?.length) {

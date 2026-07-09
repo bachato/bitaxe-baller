@@ -1127,13 +1127,22 @@ function drawTempChart(canvas, history) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
   }
 
-  const allTemps = [...history.map(p => p.asic), ...history.map(p => p.vr)];
+  // Only plot series the device actually reports. A series that's entirely
+  // zero — e.g. VR temp on Braiins OS devices, which don't expose it — is
+  // skipped: otherwise it draws a flat line at 0 AND drags the vertical
+  // scale down to 0, squashing the real series into a thin band up top.
+  const series = [
+    { key: 'asic', color: '#4cc9f0' },
+    { key: 'vr',   color: '#ffb000' },
+  ].filter(s => history.some(p => p[s.key] > 0));
+  if (!series.length) return;
+
+  const allTemps = series.flatMap(s => history.map(p => p[s.key]));
   const lo = Math.min(...allTemps) * 0.95;
   const hi = Math.max(...allTemps) * 1.05;
   const range = hi - lo || 1;
 
-  ['asic', 'vr'].forEach((key, idx) => {
-    const color = idx === 0 ? '#4cc9f0' : '#ffb000';
+  series.forEach(({ key, color }) => {
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     ctx.beginPath();

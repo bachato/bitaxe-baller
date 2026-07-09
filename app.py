@@ -275,6 +275,8 @@ def fetch_braiins(ip, timeout=3):
         "stratumURL": stratum_host,
         "stratumPort": stratum_port,
         "stratumUser": pools.get("User", "") or "",
+        # BOSer reports the live stratum difficulty; surface it like AxeOS's poolDifficulty.
+        "poolDifficulty": pools.get("Stratum Difficulty", 0) or pools.get("Work Difficulty", 0) or 0,
     }
 
 

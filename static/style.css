@@ -539,6 +539,8 @@
   .chart-label .legend .h::before { color: var(--accent); }
   .chart-label .legend .a::before { color: var(--info); }
   .chart-label .legend .v::before { color: var(--warn); }
+  /* Braiins OS devices don't report VR temp — hide its chart legend label. */
+  body.dev-braiins .vr-legend { display: none; }
   canvas { display: block; width: 100%; height: 110px; }
 
   /* Tuning panel */
